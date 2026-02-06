@@ -1,14 +1,30 @@
-"""Tests for the web app scaffold, collection tree, and request display."""
+"""Tests for the web app scaffold, collection tree, request display, and execution."""
 
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 
 from click.testing import CliRunner
 from httpx import ASGITransport, AsyncClient
 
 from fling.cli import main
+from fling.core.models import (
+    ExecutionResult,
+    HttpMethod,
+    HttpRequestDefinition,
+    SourceLocation,
+)
 from fling.web.app import create_app
+from fling.web.routes.execution import (
+    _build_response_html,
+    _detect_language,
+    _format_body,
+    _format_elapsed,
+    _format_size,
+    _progress_html,
+    _status_class,
+)
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
@@ -410,3 +426,421 @@ class TestRequestMetadataDisplay:
             response = await client.get("/")
         assert response.status_code == 200
         assert "line-through" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Execution helpers
+# ---------------------------------------------------------------------------
+
+_LOC = SourceLocation(file_path="test.http", start_line=1, end_line=1)
+
+
+def _make_request(**kwargs: object) -> HttpRequestDefinition:
+    """Create a minimal request definition for testing."""
+    defaults: dict[str, object] = {
+        "method": HttpMethod.GET,
+        "url": "https://example.com",
+        "location": _LOC,
+    }
+    defaults.update(kwargs)
+    return HttpRequestDefinition(**defaults)  # type: ignore[arg-type]
+
+
+def _make_result(**kwargs: object) -> ExecutionResult:
+    """Create a minimal execution result for testing."""
+    defaults: dict[str, object] = {
+        "request": _make_request(),
+        "resolved_url": "https://example.com",
+        "status_code": 200,
+        "response_headers": {"content-type": ["application/json"]},
+        "response_body": '{"ok": true}',
+        "elapsed_ms": 123.4,
+    }
+    defaults.update(kwargs)
+    return ExecutionResult(**defaults)  # type: ignore[arg-type]
+
+
+class TestStatusClass:
+    """Tests for _status_class helper."""
+
+    def test_2xx_success(self) -> None:
+        assert _status_class(200) == "text-status-success"
+        assert _status_class(201) == "text-status-success"
+        assert _status_class(204) == "text-status-success"
+        assert _status_class(299) == "text-status-success"
+
+    def test_3xx_redirect(self) -> None:
+        assert _status_class(301) == "text-status-redirect"
+        assert _status_class(302) == "text-status-redirect"
+        assert _status_class(304) == "text-status-redirect"
+        assert _status_class(399) == "text-status-redirect"
+
+    def test_4xx_error(self) -> None:
+        assert _status_class(400) == "text-status-error"
+        assert _status_class(404) == "text-status-error"
+        assert _status_class(422) == "text-status-error"
+
+    def test_5xx_error(self) -> None:
+        assert _status_class(500) == "text-status-error"
+        assert _status_class(503) == "text-status-error"
+
+
+class TestFormatElapsed:
+    """Tests for _format_elapsed helper."""
+
+    def test_milliseconds(self) -> None:
+        assert _format_elapsed(42) == "42ms"
+        assert _format_elapsed(999) == "999ms"
+
+    def test_seconds(self) -> None:
+        assert _format_elapsed(1000) == "1.00s"
+        assert _format_elapsed(1500) == "1.50s"
+        assert _format_elapsed(2345) == "2.35s"
+
+    def test_zero(self) -> None:
+        assert _format_elapsed(0) == "0ms"
+
+    def test_fractional_ms(self) -> None:
+        assert _format_elapsed(0.7) == "1ms"
+
+
+class TestFormatSize:
+    """Tests for _format_size helper."""
+
+    def test_bytes(self) -> None:
+        assert _format_size("hi") == "2 B"
+        assert _format_size("") == "0 B"
+
+    def test_kilobytes(self) -> None:
+        body = "x" * 2048
+        result = _format_size(body)
+        assert "KB" in result
+
+    def test_megabytes(self) -> None:
+        body = "x" * (1024 * 1024 + 1)
+        result = _format_size(body)
+        assert "MB" in result
+
+    def test_under_1kb(self) -> None:
+        body = "a" * 100
+        assert _format_size(body) == "100 B"
+
+
+class TestDetectLanguage:
+    """Tests for _detect_language helper."""
+
+    def test_json_content_type(self) -> None:
+        assert _detect_language(["application/json"], "") == "json"
+
+    def test_xml_content_type(self) -> None:
+        assert _detect_language(["application/xml"], "") == "markup"
+
+    def test_html_content_type(self) -> None:
+        assert _detect_language(["text/html"], "") == "markup"
+
+    def test_yaml_content_type(self) -> None:
+        assert _detect_language(["application/yaml"], "") == "yaml"
+        assert _detect_language(["text/yml"], "") == "yaml"
+
+    def test_json_heuristic(self) -> None:
+        assert _detect_language(["text/plain"], '{"key": "value"}') == "json"
+        assert _detect_language([], "[1, 2, 3]") == "json"
+
+    def test_xml_heuristic(self) -> None:
+        assert _detect_language([], "<root><item/></root>") == "markup"
+
+    def test_plain_text(self) -> None:
+        assert _detect_language(["text/plain"], "hello world") == ""
+
+    def test_empty(self) -> None:
+        assert _detect_language([], "") == ""
+
+
+class TestFormatBody:
+    """Tests for _format_body helper."""
+
+    def test_json_pretty_print(self) -> None:
+        result = _format_body('{"a":1,"b":2}', "json")
+        assert '"a": 1' in result
+        assert "\n" in result  # indented
+
+    def test_invalid_json_passthrough(self) -> None:
+        result = _format_body("{not json}", "json")
+        assert result == "{not json}"
+
+    def test_non_json_passthrough(self) -> None:
+        result = _format_body("<root/>", "markup")
+        assert result == "<root/>"
+
+
+class TestProgressHtml:
+    """Tests for _progress_html helper."""
+
+    def test_contains_message(self) -> None:
+        result = _progress_html("Loading...")
+        assert "Loading..." in result
+        assert "sse-loading" in result
+
+    def test_html_escaped(self) -> None:
+        result = _progress_html("<script>alert(1)</script>")
+        assert "<script>" not in result
+        assert "&lt;script&gt;" in result
+
+
+class TestBuildResponseHtml:
+    """Tests for _build_response_html helper."""
+
+    def test_success_response(self) -> None:
+        result_obj = _make_result()
+        html = _build_response_html(result_obj)
+        assert "200" in html
+        assert "text-status-success" in html
+        assert "123ms" in html
+
+    def test_error_response(self) -> None:
+        result_obj = _make_result(error="Connection refused", status_code=0)
+        html = _build_response_html(result_obj)
+        assert "Error" in html
+        assert "Connection refused" in html
+        assert "text-status-error" in html
+
+    def test_response_body_displayed(self) -> None:
+        result_obj = _make_result(response_body='{"message": "hello"}')
+        html = _build_response_html(result_obj)
+        assert "hello" in html
+
+    def test_response_headers_tab(self) -> None:
+        result_obj = _make_result(
+            response_headers={"content-type": ["application/json"], "x-custom": ["val1"]},
+        )
+        html = _build_response_html(result_obj)
+        assert "content-type" in html
+        assert "x-custom" in html
+        assert "val1" in html
+        assert "Headers (2)" in html
+
+    def test_body_html_escaped(self) -> None:
+        result_obj = _make_result(response_body='<script>alert("xss")</script>')
+        html = _build_response_html(result_obj)
+        assert "<script>" not in html
+        assert "&lt;script&gt;" in html
+
+    def test_json_body_formatted(self) -> None:
+        result_obj = _make_result(
+            response_body='{"a":1}',
+            response_headers={"content-type": ["application/json"]},
+        )
+        html_out = _build_response_html(result_obj)
+        # JSON is pretty-printed then HTML-escaped: "a" becomes &quot;a&quot;
+        assert "&quot;a&quot;: 1" in html_out
+
+    def test_redirect_status(self) -> None:
+        result_obj = _make_result(status_code=301)
+        html = _build_response_html(result_obj)
+        assert "301" in html
+        assert "text-status-redirect" in html
+
+    def test_client_error_status(self) -> None:
+        result_obj = _make_result(status_code=404)
+        html = _build_response_html(result_obj)
+        assert "404" in html
+        assert "text-status-error" in html
+
+    def test_size_displayed(self) -> None:
+        result_obj = _make_result(response_body="abcdef")
+        html = _build_response_html(result_obj)
+        assert "6 B" in html
+
+    def test_tabs_present(self) -> None:
+        result_obj = _make_result()
+        html = _build_response_html(result_obj)
+        assert "Body" in html
+        assert "Headers" in html
+        assert 'data-tab="body"' in html
+        assert 'data-tab="headers"' in html
+
+
+# ---------------------------------------------------------------------------
+# Send button visibility
+# ---------------------------------------------------------------------------
+
+
+class TestSendButton:
+    """Tests for Send button rendering in request detail."""
+
+    async def test_send_button_shown_for_normal_request(self) -> None:
+        """Non-disabled requests should have a Send button."""
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/request/0")
+        assert response.status_code == 200
+        assert "send-btn" in response.text
+        assert "sse-connect" in response.text
+
+    async def test_send_button_hidden_for_disabled_request(self) -> None:
+        """Disabled requests should NOT have a Send button."""
+        app = create_app(file_path=str(FIXTURES_DIR / "advanced.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            # Request 2 (createUser) is disabled
+            response = await client.get("/request/2")
+        assert response.status_code == 200
+        assert "send-btn" not in response.text
+
+    async def test_send_button_targets_response_content(self) -> None:
+        """Send button should target the response-content div."""
+        app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/request/0")
+        assert response.status_code == 200
+        assert 'hx-target="#response-content"' in response.text
+
+    async def test_send_button_sse_connect_url(self) -> None:
+        """Send button SSE connect URL should include the request index."""
+        app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/request/1")
+        assert response.status_code == 200
+        assert 'sse-connect="/execute/1"' in response.text
+
+
+# ---------------------------------------------------------------------------
+# Execution SSE route
+# ---------------------------------------------------------------------------
+
+
+class TestExecutionRoute:
+    """Tests for the /execute/{index} SSE streaming route."""
+
+    async def test_execute_returns_event_stream(self) -> None:
+        """The execute route should return an SSE event stream content type."""
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/0") as response,
+        ):
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers.get("content-type", "")
+
+    async def test_execute_no_file_returns_error(self) -> None:
+        """Executing with no file loaded should return an error event."""
+        app = create_app()
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/0") as response,
+        ):
+            body = (await response.aread()).decode()
+        assert "Request not found" in body
+
+    async def test_execute_invalid_index_returns_error(self) -> None:
+        """Executing with out-of-range index should return an error event."""
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/99") as response,
+        ):
+            body = (await response.aread()).decode()
+        assert "Request not found" in body
+
+    async def test_execute_negative_index_returns_error(self) -> None:
+        """Executing with negative index should return an error event."""
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/-1") as response,
+        ):
+            body = (await response.aread()).decode()
+        assert "Request not found" in body
+
+    async def test_execute_streams_progress_and_response(self) -> None:
+        """Executing a valid request should stream progress and response events."""
+        mock_result = _make_result()
+
+        async def mock_run_all(http_file):
+            yield (http_file.requests[0], mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+
+        # We patch HttpRunner.run_all to return our mock result
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/0") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        # Should have progress events
+        assert "event: progress" in body
+        assert "Preparing request" in body
+        assert "Sending request" in body
+        # Should have response event
+        assert "event: response" in body
+        assert "200" in body
+        # Should have complete event
+        assert "event: complete" in body
+
+    async def test_execute_named_request_uses_run_single(self) -> None:
+        """Named requests should use run_single for dependency resolution."""
+        mock_result = _make_result()
+
+        async def mock_run_single(http_file, name):
+            yield (_make_request(), mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "advanced.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_single = lambda f, n: mock_run_single(f, n)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/0") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        assert "event: response" in body
+        assert "200" in body
+
+    async def test_execute_error_result_shows_error(self) -> None:
+        """Execution errors should render in the error format."""
+        mock_result = _make_result(error="Connection timed out", status_code=0)
+
+        async def mock_run_all(http_file):
+            yield (http_file.requests[0], mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/0") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        assert "Connection timed out" in body
+        assert "Error" in body

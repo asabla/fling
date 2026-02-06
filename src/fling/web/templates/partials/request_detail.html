@@ -26,6 +26,18 @@
         {% if req.http_version %}
         <span class="text-xs text-accent-dim">{{ req.http_version }}</span>
         {% endif %}
+        {% if not req.metadata.disabled %}
+        <button
+            id="send-btn"
+            class="bg-accent text-surface font-bold text-sm px-4 py-1 rounded hover:opacity-90 transition-opacity shrink-0"
+            hx-ext="sse"
+            sse-connect="/execute/{{ selected_index }}"
+            sse-swap="response"
+            hx-target="#response-content"
+            hx-swap="innerHTML"
+            sse-close="complete"
+        >Send</button>
+        {% endif %}
     </div>
 
     <!-- Request name -->

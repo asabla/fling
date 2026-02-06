@@ -55,9 +55,11 @@ def create_app(
         app.state.http_file = _load_file(file_path)
 
     # Register routes
+    from fling.web.routes.execution import router as execution_router
     from fling.web.routes.pages import router as pages_router
 
     app.include_router(pages_router)
+    app.include_router(execution_router)
 
     return app
 
