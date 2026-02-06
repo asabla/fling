@@ -29,8 +29,13 @@
     padding: 0 1;
 }
 
-/* Request detail: top half of content */
-#request-detail {
+/* Request panel: top half of content */
+#request-panel {
+    height: 1fr;
+}
+
+/* Tabbed content inside request panel */
+#request-tabs {
     height: 1fr;
 }
 

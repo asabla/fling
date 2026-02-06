@@ -12,56 +12,10 @@ from textual.widgets import Footer, Header, Static
 
 from fling.core.parser import parse_http_file
 from fling.tui.widgets.collection_tree import CollectionTree
+from fling.tui.widgets.request_panel import RequestPanel
 
 if TYPE_CHECKING:
     from fling.core.models import HttpFile, HttpRequestDefinition
-
-
-class RequestDetail(Static):
-    """Displays details of the currently selected request.
-
-    This is a placeholder for Task 4.2 which will add full tabbed content.
-    """
-
-    DEFAULT_CSS = """
-    RequestDetail {
-        width: 1fr;
-        height: 1fr;
-        padding: 1 2;
-        overflow-y: auto;
-    }
-    """
-
-    def update_request(self, request: HttpRequestDefinition) -> None:
-        """Update the display with the given request."""
-        method = request.method.value
-        url = request.url
-        name = request.metadata.name or "(unnamed)"
-
-        lines = [
-            f"[bold]{name}[/]",
-            "",
-            f"[bold green]{method}[/] {url}",
-        ]
-
-        # Headers
-        if request.headers:
-            lines.append("")
-            lines.append("[bold]Headers:[/]")
-            for header in request.headers:
-                lines.append(f"  {header.name}: {header.value}")
-
-        # Body
-        if request.body and request.body.content:
-            lines.append("")
-            lines.append("[bold]Body:[/]")
-            lines.append(request.body.content)
-
-        self.update("\n".join(lines))
-
-    def clear_request(self) -> None:
-        """Clear the display."""
-        self.update("[dim]Select a request from the tree to view details[/]")
 
 
 class ResponsePanel(Static):
@@ -138,7 +92,7 @@ class FlingApp(App[None]):
                     id="collection-tree",
                 )
             with Vertical(id="content"):
-                yield RequestDetail(id="request-detail")
+                yield RequestPanel(id="request-panel")
                 yield ResponsePanel(id="response-panel")
         yield Footer()
 
@@ -147,8 +101,8 @@ class FlingApp(App[None]):
         if self._file_path:
             self.sub_title = Path(self._file_path).name
         else:
-            request_detail = self.query_one("#request-detail", RequestDetail)
-            request_detail.clear_request()
+            request_panel = self.query_one("#request-panel", RequestPanel)
+            request_panel.clear_request()
 
     def on_collection_tree_request_selected(
         self,
@@ -156,8 +110,8 @@ class FlingApp(App[None]):
     ) -> None:
         """Handle request selection from the collection tree."""
         self._selected_request = event.request
-        request_detail = self.query_one("#request-detail", RequestDetail)
-        request_detail.update_request(event.request)
+        request_panel = self.query_one("#request-panel", RequestPanel)
+        request_panel.update_request(event.request)
 
     def action_run_request(self) -> None:
         """Run the currently selected request (placeholder for Task 4.3)."""
@@ -182,8 +136,8 @@ class FlingApp(App[None]):
             self._load_file(self._file_path)
             tree = self.query_one("#collection-tree", CollectionTree)
             tree.load_file(self._http_file)  # type: ignore[arg-type]
-            request_detail = self.query_one("#request-detail", RequestDetail)
-            request_detail.clear_request()
+            request_panel = self.query_one("#request-panel", RequestPanel)
+            request_panel.clear_request()
             self._selected_request = None
             self.notify("File reloaded")
         else:
