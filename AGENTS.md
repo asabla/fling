@@ -92,13 +92,13 @@ src/fling/
 | C | — | Live file watching with SSE hot-reload | `549a78e` |
 | D | — | UI polish & UX improvements (search, keyboard nav, responsive) | `b9a8a0c` |
 | E | — | Advanced features (env editing, history, comparison) | `91a639b` |
-| 6 | 6.3 | File formatting (`fling fmt`) and validation (`fling validate`) | |
+| 6 | 6.3 | File formatting (`fling fmt`) and validation (`fling validate`) | `57bf13d` |
+| 7 | 7.1 | Documentation (README, CLI ref, format guide, env guide, scripting guide, Postman guide) | |
 
 ### Remaining
 
 | Phase | Task | Description |
 |-------|------|-------------|
-| 7 | 7.1 | Documentation |
 | 7 | 7.2 | CI/CD (GitHub Actions) |
 
 ## Conventions
