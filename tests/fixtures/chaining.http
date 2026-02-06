@@ -1,0 +1,33 @@
+# @name login
+POST https://api.example.com/auth/login
+Content-Type: application/json
+
+{"username": "admin", "password": "secret"}
+
+###
+
+# @name get-profile
+# @ref login
+GET https://api.example.com/profile
+Authorization: Bearer {{login.response.body.$.token}}
+
+###
+
+# @name update-profile
+# @ref get-profile
+PUT https://api.example.com/profile
+Authorization: Bearer {{login.response.body.$.token}}
+Content-Type: application/json
+X-Request-Id: {{login.response.headers.X-Request-Id}}
+
+{"displayName": "Updated Name", "email": "{{get-profile.response.body.$.email}}"}
+
+###
+
+# @name disabled-request
+# @disabled
+GET https://api.example.com/disabled
+
+###
+
+GET https://api.example.com/unnamed

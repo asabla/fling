@@ -1,13 +1,15 @@
 """Variable resolution engine for fling.
 
 Resolves {{variable}} templates in URLs, headers, and request bodies.
-Handles file variables, environment variables, .env variables, and
-system/dynamic variables. Request chaining is deferred to Task 2.3.
+Handles file variables, environment variables, .env variables,
+system/dynamic variables, and request chaining references.
 """
 
 from __future__ import annotations
 
 import contextlib
+import json
+import logging
 import os
 import re
 import uuid
@@ -15,10 +17,14 @@ from datetime import UTC, datetime
 from random import randint
 from typing import TYPE_CHECKING, Any
 
+from jsonpath_ng import parse as jsonpath_parse
+
 from fling.core.environment import get_dotenv_variables, resolve_environment
 
 if TYPE_CHECKING:
-    from fling.core.models import EnvironmentFile, HttpFile
+    from fling.core.models import EnvironmentFile, ExecutionResult, HttpFile
+
+logger = logging.getLogger(__name__)
 
 # Pattern to match {{variable}} templates, including nested whitespace
 VARIABLE_PATTERN = re.compile(r"\{\{(.+?)\}\}")
@@ -28,6 +34,10 @@ SYSTEM_VAR_PATTERN = re.compile(r"^\$(\w+)(?:\s+(.*))?$")
 
 # Pattern for $env.VAR syntax
 ENV_DOT_PATTERN = re.compile(r"^\$env\.(.+)$")
+
+# Pattern for chaining references: requestName.response.body.$.jsonpath
+# or requestName.response.headers.HeaderName
+CHAINING_PATTERN = re.compile(r"^(\w+)\.response\.(body\.\$\.(.+)|headers\.(.+))$")
 
 
 class VariableResolver:
@@ -77,6 +87,9 @@ class VariableResolver:
         if env_file:
             self._dotenv_vars = get_dotenv_variables(env_file)
 
+        # Chaining: stored execution results keyed by request name
+        self._chain_results: dict[str, ExecutionResult] = {}
+
     def resolve_string(self, text: str) -> str:
         """Resolve all {{variable}} templates in a string.
 
@@ -118,6 +131,11 @@ class VariableResolver:
             func_name = sys_match.group(1)
             args_str = sys_match.group(2)
             return self._resolve_system_variable(func_name, args_str)
+
+        # Check for chaining reference (requestName.response.body.$.jsonpath)
+        chain_match = CHAINING_PATTERN.match(var_expr)
+        if chain_match:
+            return self._resolve_chaining_reference(chain_match)
 
         # Regular variable — walk the precedence chain
         return self._resolve_named_variable(var_expr)
@@ -258,6 +276,94 @@ class VariableResolver:
                 return None
 
         return str(randint(min_val, max_val))
+
+    def _resolve_chaining_reference(self, chain_match: re.Match[str]) -> Any | None:
+        """Resolve a request chaining reference.
+
+        Supports:
+            - {{requestName.response.body.$.jsonpath}} — extract from JSON body
+            - {{requestName.response.headers.HeaderName}} — extract response header
+
+        Args:
+            chain_match: Regex match from CHAINING_PATTERN.
+
+        Returns:
+            The resolved value, or None if the referenced request hasn't
+            been executed or the path doesn't resolve.
+        """
+        request_name = chain_match.group(1)
+        body_jsonpath = chain_match.group(3)  # e.g. "token" from body.$.token
+        header_name = chain_match.group(4)  # e.g. "X-Token" from headers.X-Token
+
+        result = self._chain_results.get(request_name)
+        if result is None:
+            logger.warning("Chaining reference to '%s' but no result stored", request_name)
+            return None
+
+        if body_jsonpath:
+            return self._extract_jsonpath(result.response_body, body_jsonpath)
+
+        if header_name:
+            # Headers are stored as dict[str, list[str]]; return first value
+            values = result.response_headers.get(header_name)
+            if not values:
+                # Try case-insensitive lookup
+                for key, vals in result.response_headers.items():
+                    if key.lower() == header_name.lower():
+                        return vals[0] if vals else None
+                logger.warning(
+                    "Header '%s' not found in response from '%s'",
+                    header_name,
+                    request_name,
+                )
+                return None
+            return values[0]
+
+        return None
+
+    @staticmethod
+    def _extract_jsonpath(body: str, path: str) -> Any | None:
+        """Extract a value from a JSON body using JSONPath.
+
+        Args:
+            body: JSON response body as string.
+            path: JSONPath expression (without the leading $.).
+
+        Returns:
+            The extracted value, or None if parsing/matching fails.
+        """
+        try:
+            data = json.loads(body)
+        except (json.JSONDecodeError, TypeError):
+            logger.warning("Failed to parse response body as JSON for chaining")
+            return None
+
+        try:
+            expr = jsonpath_parse(f"$.{path}")
+            matches = expr.find(data)
+            if not matches:
+                logger.warning("JSONPath '$.%s' matched nothing", path)
+                return None
+            # Return the single matched value (or first if multiple)
+            value = matches[0].value
+            # Convert non-string primitives to string for template substitution
+            if isinstance(value, bool):
+                return str(value).lower()
+            if isinstance(value, (int, float)):
+                return str(value)
+            return value
+        except Exception:
+            logger.warning("JSONPath evaluation failed for '$.%s'", path, exc_info=True)
+            return None
+
+    def add_chain_result(self, name: str, result: ExecutionResult) -> None:
+        """Store an execution result for request chaining.
+
+        Args:
+            name: The request name (from @name metadata).
+            result: The execution result to store.
+        """
+        self._chain_results[name] = result
 
     def add_variables(self, variables: dict[str, Any]) -> None:
         """Add or update request-scoped variables.
