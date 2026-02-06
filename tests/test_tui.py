@@ -1,11 +1,11 @@
-"""Tests for the TUI app scaffold, collection tree, request panel, and response panel."""
+"""Tests for the TUI app scaffold, collection tree, request panel, response panel, and progress panel."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, RichLog, Select, Static, TextArea
+from textual.widgets import DataTable, ProgressBar, RichLog, Select, Static, TextArea
 
 from fling.core.models import (
     ExecutionResult,
@@ -15,6 +15,7 @@ from fling.core.models import (
 )
 from fling.tui.app import FlingApp
 from fling.tui.widgets.collection_tree import CollectionTree
+from fling.tui.widgets.progress_panel import ProgressPanel, SummaryBar
 from fling.tui.widgets.request_panel import RequestPanel, UrlBar
 from fling.tui.widgets.response_panel import ResponsePanel, StatusBar
 
@@ -792,3 +793,340 @@ class TestTuiCliCommand:
         result = runner.invoke(main, ["--help"])
         assert result.exit_code == 0
         assert "tui" in result.output
+
+
+# ---------------------------------------------------------------------------
+# Helpers for progress panel tests
+# ---------------------------------------------------------------------------
+
+
+def _make_requests(count: int = 3) -> list[HttpRequestDefinition]:
+    """Create a list of test request definitions."""
+    from fling.core.models import RequestMetadata
+
+    requests = []
+    for i in range(count):
+        requests.append(
+            HttpRequestDefinition(
+                method=HttpMethod.GET,
+                url=f"https://api.example.com/endpoint-{i}",
+                metadata=RequestMetadata(name=f"request-{i}"),
+                location=_LOC,
+            ),
+        )
+    return requests
+
+
+# ---------------------------------------------------------------------------
+# ProgressPanel — layout and visibility
+# ---------------------------------------------------------------------------
+
+
+class TestProgressPanelLayout:
+    """Tests for the ProgressPanel widget mounting and layout."""
+
+    @pytest.mark.asyncio
+    async def test_app_has_progress_panel(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            assert panel is not None
+
+    @pytest.mark.asyncio
+    async def test_progress_panel_hidden_by_default(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            assert panel.display is False
+
+    @pytest.mark.asyncio
+    async def test_progress_panel_has_summary_bar(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            panel.display = True
+            summary_bar = panel.query_one("#summary-bar", SummaryBar)
+            assert summary_bar is not None
+
+    @pytest.mark.asyncio
+    async def test_progress_panel_has_progress_bar(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            panel.display = True
+            progress_bar = panel.query_one("#run-progress-bar", ProgressBar)
+            assert progress_bar is not None
+
+    @pytest.mark.asyncio
+    async def test_progress_panel_has_status_table(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            panel.display = True
+            table = panel.query_one("#request-status-table", DataTable)
+            assert table is not None
+
+
+# ---------------------------------------------------------------------------
+# ProgressPanel — start_run
+# ---------------------------------------------------------------------------
+
+
+class TestProgressPanelStartRun:
+    """Tests for starting a collection run."""
+
+    @pytest.mark.asyncio
+    async def test_start_run_shows_panel(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+            assert panel.display is True
+
+    @pytest.mark.asyncio
+    async def test_start_run_sets_total(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(5)
+            panel.start_run(requests)
+            assert panel.total == 5
+
+    @pytest.mark.asyncio
+    async def test_start_run_creates_rows(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+            table = panel.query_one("#request-status-table", DataTable)
+            assert table.row_count == 3
+
+    @pytest.mark.asyncio
+    async def test_start_run_resets_completed(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+            assert panel.completed == 0
+
+    @pytest.mark.asyncio
+    async def test_start_run_summary_shows_running(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+            await pilot.pause()
+            summary = panel.query_one("#summary-bar", SummaryBar)
+            text = str(summary.render())
+            assert "Running" in text
+
+
+# ---------------------------------------------------------------------------
+# ProgressPanel — update_request_complete
+# ---------------------------------------------------------------------------
+
+
+class TestProgressPanelUpdateRequest:
+    """Tests for updating request status during a run."""
+
+    @pytest.mark.asyncio
+    async def test_complete_increments_count(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+
+            result = _make_result(status_code=200)
+            panel.update_request_complete(requests[0], result)
+            assert panel.completed == 1
+
+    @pytest.mark.asyncio
+    async def test_complete_updates_progress_bar(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+
+            result = _make_result(status_code=200)
+            panel.update_request_complete(requests[0], result)
+            await pilot.pause()
+
+            progress_bar = panel.query_one("#run-progress-bar", ProgressBar)
+            assert progress_bar.progress == 1
+
+    @pytest.mark.asyncio
+    async def test_error_result_tracked(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+
+            success = _make_result(status_code=200)
+            error = _make_result(error="Connection failed", status_code=0)
+            panel.update_request_complete(requests[0], success)
+            panel.update_request_complete(requests[1], error)
+            assert panel.completed == 2
+
+
+# ---------------------------------------------------------------------------
+# ProgressPanel — finish_run
+# ---------------------------------------------------------------------------
+
+
+class TestProgressPanelFinishRun:
+    """Tests for finishing a collection run."""
+
+    @pytest.mark.asyncio
+    async def test_finish_shows_done(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+
+            for req in requests:
+                panel.update_request_complete(req, _make_result())
+
+            panel.finish_run()
+            await pilot.pause()
+
+            summary = panel.query_one("#summary-bar", SummaryBar)
+            text = str(summary.render())
+            assert "Done" in text
+
+    @pytest.mark.asyncio
+    async def test_finish_shows_passed_count(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+
+            for req in requests:
+                panel.update_request_complete(req, _make_result())
+
+            panel.finish_run()
+            await pilot.pause()
+
+            summary = panel.query_one("#summary-bar", SummaryBar)
+            text = str(summary.render())
+            assert "2 passed" in text
+
+    @pytest.mark.asyncio
+    async def test_finish_shows_failed_count(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+
+            panel.update_request_complete(requests[0], _make_result())
+            panel.update_request_complete(requests[1], _make_result(error="Timeout", status_code=0))
+
+            panel.finish_run()
+            await pilot.pause()
+
+            summary = panel.query_one("#summary-bar", SummaryBar)
+            text = str(summary.render())
+            assert "1 failed" in text
+
+
+# ---------------------------------------------------------------------------
+# ProgressPanel — reset
+# ---------------------------------------------------------------------------
+
+
+class TestProgressPanelReset:
+    """Tests for resetting the progress panel."""
+
+    @pytest.mark.asyncio
+    async def test_reset_hides_panel(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+            assert panel.display is True
+
+            panel.reset()
+            assert panel.display is False
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_table(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(3)
+            panel.start_run(requests)
+
+            table = panel.query_one("#request-status-table", DataTable)
+            assert table.row_count == 3
+
+            panel.reset()
+            assert table.row_count == 0
+
+    @pytest.mark.asyncio
+    async def test_reset_clears_counters(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            requests = _make_requests(2)
+            panel.start_run(requests)
+            panel.update_request_complete(requests[0], _make_result())
+
+            panel.reset()
+            assert panel.total == 0
+            assert panel.completed == 0
+
+
+# ---------------------------------------------------------------------------
+# App integration — Run All binding
+# ---------------------------------------------------------------------------
+
+
+class TestRunAllBinding:
+    """Tests for the Run All key binding in the app."""
+
+    @pytest.mark.asyncio
+    async def test_run_all_binding_registered(self) -> None:
+        app = _make_app()
+        async with app.run_test():
+            binding_keys = [b.key for b in app.BINDINGS]
+            assert "ctrl+shift+r" in binding_keys
+
+    @pytest.mark.asyncio
+    async def test_reload_resets_progress_panel(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            # Show progress panel
+            panel = app.query_one("#progress-panel", ProgressPanel)
+            panel.start_run(_make_requests(2))
+            assert panel.display is True
+
+            # Reload should reset it
+            await pilot.press("r")
+            await pilot.pause()
+            assert panel.display is False

@@ -49,3 +49,18 @@
 #response-panel {
     height: 1fr;
 }
+
+/* Progress panel: replaces response panel during Run All */
+#progress-panel {
+    height: 1fr;
+}
+
+/* Progress bar inside progress panel */
+#run-progress-bar {
+    margin: 0 2;
+}
+
+/* Request status table inside progress panel */
+#request-status-table {
+    height: 1fr;
+}

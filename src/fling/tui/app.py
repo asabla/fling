@@ -16,6 +16,7 @@ from fling.core.models import HttpFile as HttpFileModel
 from fling.core.parser import parse_http_file
 from fling.core.runner import HttpRunner
 from fling.tui.widgets.collection_tree import CollectionTree
+from fling.tui.widgets.progress_panel import ProgressPanel
 from fling.tui.widgets.request_panel import RequestPanel
 from fling.tui.widgets.response_panel import ResponsePanel
 
@@ -38,6 +39,7 @@ class FlingApp(App[None]):
     BINDINGS: ClassVar[list[Binding]] = [
         Binding("q", "quit", "Quit", show=True),
         Binding("ctrl+r", "run_request", "Run", show=True),
+        Binding("ctrl+shift+r", "run_all", "Run All", show=True),
         Binding("ctrl+n", "next_request", "Next", show=True),
         Binding("ctrl+e", "select_env", "Env", show=True),
         Binding("r", "reload", "Reload", show=True),
@@ -94,6 +96,7 @@ class FlingApp(App[None]):
             with Vertical(id="content"):
                 yield RequestPanel(id="request-panel")
                 yield ResponsePanel(id="response-panel")
+                yield ProgressPanel(id="progress-panel")
         yield Footer()
 
     def _build_env_options(self) -> list[tuple[str, str]]:
@@ -140,6 +143,9 @@ class FlingApp(App[None]):
 
         response_panel = self.query_one("#response-panel", ResponsePanel)
         response_panel.show_loading()
+        response_panel.display = True
+        progress_panel = self.query_one("#progress-panel", ProgressPanel)
+        progress_panel.display = False
         self._execute_request(self._selected_request)
 
     @work(exclusive=True, thread=False)
@@ -180,6 +186,54 @@ class FlingApp(App[None]):
         else:
             self.notify("No result returned", severity="warning")
 
+    def action_run_all(self) -> None:
+        """Run all requests in the collection."""
+        if not self._http_file:
+            self.notify("No file loaded", severity="warning")
+            return
+
+        runnable = [r for r in self._http_file.requests if not r.metadata.disabled]
+        if not runnable:
+            self.notify("No runnable requests", severity="warning")
+            return
+
+        progress_panel = self.query_one("#progress-panel", ProgressPanel)
+        progress_panel.start_run(runnable)
+
+        # Hide the response panel and show progress panel
+        response_panel = self.query_one("#response-panel", ResponsePanel)
+        response_panel.display = False
+        progress_panel.display = True
+
+        self._execute_all_requests()
+
+    @work(exclusive=True, thread=False)
+    async def _execute_all_requests(self) -> None:
+        """Execute all requests in a background worker."""
+        assert self._http_file is not None
+
+        env_dir = Path(self._file_path).parent if self._file_path else Path(".")
+        env_config = load_environment(str(env_dir))
+
+        runner = HttpRunner(
+            env_file=env_config,
+            env_name=self._env_name,
+        )
+
+        progress_panel = self.query_one("#progress-panel", ProgressPanel)
+        response_panel = self.query_one("#response-panel", ResponsePanel)
+        last_result: ExecutionResult | None = None
+
+        async for request, result in runner.run_all(self._http_file):
+            progress_panel.update_request_complete(request, result)
+            last_result = result
+
+        progress_panel.finish_run()
+
+        # Show the last result in the response panel for quick inspection
+        if last_result:
+            response_panel.show_result(last_result)
+
     def action_next_request(self) -> None:
         """Move to the next request in the tree."""
         tree = self.query_one("#collection-tree", CollectionTree)
@@ -202,6 +256,9 @@ class FlingApp(App[None]):
             request_panel.clear_request()
             response_panel = self.query_one("#response-panel", ResponsePanel)
             response_panel.clear_result()
+            response_panel.display = True
+            progress_panel = self.query_one("#progress-panel", ProgressPanel)
+            progress_panel.reset()
             self._selected_request = None
 
             # Refresh env selector
