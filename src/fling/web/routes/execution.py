@@ -23,10 +23,13 @@ from markupsafe import Markup
 from sse_starlette.sse import EventSourceResponse
 
 from fling.core.environment import load_environment
+from fling.core.models import ExecutionRecord
 from fling.core.models import HttpFile as HttpFileModel
 from fling.core.runner import HttpRunner
+from fling.web.history import prune_old, save_record
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import AsyncGenerator
 
     from fling.core.models import ExecutionResult, HttpRequestDefinition
@@ -247,14 +250,16 @@ def _resolve_file(
 async def execute_file_all(request: Request, file_key: str) -> EventSourceResponse:
     """Execute all requests in a specific file, streaming results via SSE."""
     http_file, env_dir, env_name = _resolve_file(request, file_key)
-    return _execute_all_impl(http_file, env_dir, env_name)
+    history_conn: sqlite3.Connection | None = getattr(request.app.state, "history_conn", None)
+    return _execute_all_impl(http_file, env_dir, env_name, file_key=file_key, history_conn=history_conn)
 
 
 @router.get("/{file_key:path}/request/{index}")
 async def execute_file_request(request: Request, file_key: str, index: int) -> EventSourceResponse:
     """Execute a single request from a specific file via SSE."""
     http_file, env_dir, env_name = _resolve_file(request, file_key)
-    return _execute_request_impl(http_file, env_dir, env_name, index)
+    history_conn: sqlite3.Connection | None = getattr(request.app.state, "history_conn", None)
+    return _execute_request_impl(http_file, env_dir, env_name, index, file_key=file_key, history_conn=history_conn)
 
 
 # ---------------------------------------------------------------------------
@@ -269,7 +274,8 @@ async def execute_all(request: Request) -> EventSourceResponse:
     Backward-compatible route — uses the first (or only) loaded file.
     """
     http_file, env_dir, env_name = _resolve_file(request)
-    return _execute_all_impl(http_file, env_dir, env_name)
+    history_conn: sqlite3.Connection | None = getattr(request.app.state, "history_conn", None)
+    return _execute_all_impl(http_file, env_dir, env_name, history_conn=history_conn)
 
 
 @router.get("/{index}")
@@ -279,7 +285,8 @@ async def execute_request(request: Request, index: int) -> EventSourceResponse:
     Backward-compatible route — uses the first (or only) loaded file.
     """
     http_file, env_dir, env_name = _resolve_file(request)
-    return _execute_request_impl(http_file, env_dir, env_name, index)
+    history_conn: sqlite3.Connection | None = getattr(request.app.state, "history_conn", None)
+    return _execute_request_impl(http_file, env_dir, env_name, index, history_conn=history_conn)
 
 
 # ---------------------------------------------------------------------------
@@ -291,6 +298,9 @@ def _execute_all_impl(
     http_file: HttpFileModel | None,
     env_dir: Path | None,
     env_name: str | None,
+    *,
+    file_key: str | None = None,
+    history_conn: sqlite3.Connection | None = None,
 ) -> EventSourceResponse:
     """Shared implementation for execute-all routes."""
 
@@ -332,6 +342,16 @@ def _execute_all_impl(
             else:
                 passed += 1
 
+            # Save to history
+            _save_to_history(
+                history_conn,
+                result,
+                env_name=env_name,
+                file_key=file_key,
+                request_index=completed - 1,
+                request_name=req_def.metadata.name,
+            )
+
             # Stream log entry
             yield {
                 "event": "log",
@@ -358,6 +378,9 @@ def _execute_request_impl(
     env_dir: Path | None,
     env_name: str | None,
     index: int,
+    *,
+    file_key: str | None = None,
+    history_conn: sqlite3.Connection | None = None,
 ) -> EventSourceResponse:
     """Shared implementation for execute-single-request routes."""
 
@@ -416,6 +439,16 @@ def _execute_request_impl(
                 "data": '<div class="p-4 text-status-error">No result returned.</div>',
             }
         else:
+            # Save to history
+            _save_to_history(
+                history_conn,
+                result,
+                env_name=env_name,
+                file_key=file_key,
+                request_index=index,
+                request_name=target_request.metadata.name,
+            )
+
             # Send full response HTML
             yield {
                 "event": "response",
@@ -425,3 +458,34 @@ def _execute_request_impl(
         yield {"event": "complete", "data": "done"}
 
     return EventSourceResponse(event_generator())
+
+
+# ---------------------------------------------------------------------------
+# History helpers
+# ---------------------------------------------------------------------------
+
+
+def _save_to_history(
+    conn: sqlite3.Connection | None,
+    result: ExecutionResult,
+    *,
+    env_name: str | None,
+    file_key: str | None,
+    request_index: int,
+    request_name: str | None,
+) -> None:
+    """Persist an execution result to the history database (best-effort)."""
+    if conn is None:
+        return
+    try:
+        record = ExecutionRecord(
+            env_name=env_name,
+            file_key=file_key,
+            request_index=request_index,
+            request_name=request_name,
+            result=result,
+        )
+        save_record(conn, record)
+        prune_old(conn)
+    except Exception:
+        logger.warning("Failed to save execution record to history", exc_info=True)

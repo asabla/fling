@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
+from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
@@ -143,6 +145,18 @@ class ExecutionResult(BaseModel):
     elapsed_ms: float = 0.0
     error: str | None = None
     script_result: ScriptResult | None = None
+
+
+class ExecutionRecord(BaseModel):
+    """A persisted record of a single HTTP request execution."""
+
+    id: str = Field(default_factory=lambda: uuid4().hex)
+    timestamp: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    env_name: str | None = None
+    file_key: str | None = None
+    request_index: int = 0
+    request_name: str | None = None
+    result: ExecutionResult
 
 
 class ParseError(BaseModel):

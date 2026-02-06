@@ -1,0 +1,89 @@
+<!-- Environment editor panel — loaded via HTMX into a modal/panel -->
+<div id="env-editor" class="space-y-4">
+    <div class="flex items-center justify-between mb-2">
+        <h3 class="text-sm font-semibold uppercase tracking-wider text-accent-dim">Environments</h3>
+        <!-- Create new environment -->
+        <button
+            id="env-create-btn"
+            type="button"
+            class="text-xs px-2 py-1 rounded border border-surface-lighter text-accent-dim hover:text-accent hover:border-accent/50 transition-colors"
+            onclick="toggleEnvCreate()"
+        >+ New</button>
+    </div>
+
+    <!-- New environment form (hidden by default) -->
+    <form id="env-create-form" class="hidden border border-surface-lighter rounded p-3 space-y-2"
+          hx-post="/environments"
+          hx-target="#env-editor-container"
+          hx-swap="innerHTML"
+          hx-headers='{"Content-Type": "application/json"}'
+          hx-ext="json-enc"
+    >
+        <label class="text-xs text-accent-dim">Name</label>
+        <div class="flex gap-2">
+            <input type="text" name="name" placeholder="e.g. staging"
+                   class="flex-1 bg-surface border border-surface-lighter rounded px-2 py-1 text-sm text-accent placeholder-accent-dim/50 focus:border-accent focus:outline-none"
+                   required>
+            <button type="submit" class="text-xs px-3 py-1 rounded bg-method-get/20 text-method-get font-bold hover:bg-method-get/30 transition-colors">Create</button>
+            <button type="button" class="text-xs px-2 py-1 text-accent-dim hover:text-accent" onclick="toggleEnvCreate()">Cancel</button>
+        </div>
+    </form>
+
+    <!-- Shared variables -->
+    {% if shared %}
+    <details class="border border-surface-lighter rounded" open>
+        <summary class="px-3 py-2 text-sm font-medium text-accent cursor-pointer hover:bg-surface-light/50 select-none">
+            _shared
+            <span class="text-xs text-accent-dim ml-1">({{ shared|length }} vars)</span>
+        </summary>
+        <div class="px-3 pb-3"
+             id="env-vars-_shared"
+             hx-get="/environments/_shared"
+             hx-trigger="revealed"
+             hx-swap="innerHTML"
+        >
+            {% set env_name = "_shared" %}
+            {% set variables = shared %}
+            {% include "partials/env_variables.html" %}
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Named environments -->
+    {% for name in env_names %}
+    <details class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-sm font-medium text-accent cursor-pointer hover:bg-surface-light/50 select-none">
+            {{ name }}
+            <span class="text-xs text-accent-dim ml-1">({{ environments[name]|length }} vars)</span>
+            <button type="button"
+                    class="float-right text-xs text-status-error hover:text-red-400 ml-2"
+                    hx-delete="/environments/{{ name }}"
+                    hx-target="#env-editor-container"
+                    hx-swap="innerHTML"
+                    hx-confirm="Delete environment '{{ name }}'?"
+                    onclick="event.stopPropagation()"
+            >Delete</button>
+        </summary>
+        <div class="px-3 pb-3"
+             id="env-vars-{{ name }}"
+             hx-get="/environments/{{ name }}"
+             hx-trigger="revealed"
+             hx-swap="innerHTML"
+        >
+            <!-- Loaded via HTMX when details is opened -->
+            <p class="text-xs text-accent-dim py-2">Loading...</p>
+        </div>
+    </details>
+    {% endfor %}
+
+    {% if not env_names and not shared %}
+    <p class="text-sm text-accent-dim py-4 text-center">No environments configured. Click "+ New" to create one.</p>
+    {% endif %}
+</div>
+
+<script>
+function toggleEnvCreate() {
+    var form = document.getElementById('env-create-form');
+    if (form) form.classList.toggle('hidden');
+}
+</script>

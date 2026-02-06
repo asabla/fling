@@ -7,8 +7,11 @@ where variables are available in all environments.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
+import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -220,3 +223,78 @@ def get_dotenv_variables(env_file: EnvironmentFile) -> dict[str, str]:
     """
     dotenv_vars = env_file.environments.get("_dotenv", {})
     return {k: str(v) for k, v in dotenv_vars.items()}
+
+
+def save_environment(
+    directory: Path,
+    env_data: dict[str, dict[str, Any]],
+    *,
+    public_filename: str = PUBLIC_ENV_FILENAME,
+) -> Path:
+    """Save environment data to the public environment JSON file.
+
+    Writes the data atomically using a temporary file and ``os.replace()``.
+    Only the **public** environment file is written — the private file is
+    never modified by this function.
+
+    Internal keys (``_dotenv``, ``_shared`` used as a regular key, etc.)
+    that start with ``_`` are preserved if present in *env_data*, but the
+    caller is responsible for stripping runtime-only keys like ``_dotenv``
+    before calling this function.
+
+    Args:
+        directory: Directory in which the environment file lives.
+        env_data: Mapping of environment names to their variable dicts.
+        public_filename: Name of the public env file.
+
+    Returns:
+        The path to the written file.
+
+    Raises:
+        TypeError: If *env_data* is not a ``dict``.
+        ValueError: If any environment value is not a ``dict``.
+    """
+    if not isinstance(env_data, dict):
+        msg = f"env_data must be a dict, got {type(env_data).__name__}"
+        raise TypeError(msg)
+
+    for env_name, env_vars in env_data.items():
+        if not isinstance(env_vars, dict):
+            msg = f"Environment '{env_name}' must map to a dict, got {type(env_vars).__name__}"
+            raise ValueError(msg)
+
+    directory = Path(directory)
+    target = directory / public_filename
+
+    # Serialize to pretty-printed JSON
+    content = json.dumps(env_data, indent=4, ensure_ascii=False) + "\n"
+
+    # Atomic write: write to temp file in same directory, then replace
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(directory),
+        prefix=".env_tmp_",
+        suffix=".json",
+    )
+    try:
+        os.write(fd, content.encode("utf-8"))
+        os.close(fd)
+        os.replace(tmp_path, str(target))
+        logger.info("Saved public environment to %s", target)
+    except BaseException:
+        # Clean up temp file on any failure
+        if not _is_fd_closed(fd):
+            os.close(fd)
+        with contextlib.suppress(OSError):
+            os.unlink(tmp_path)
+        raise
+
+    return target
+
+
+def _is_fd_closed(fd: int) -> bool:
+    """Check whether a file descriptor is already closed."""
+    try:
+        os.fstat(fd)
+    except OSError:
+        return True
+    return False

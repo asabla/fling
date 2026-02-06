@@ -1,0 +1,146 @@
+<!-- History list partial — loaded into the history modal via HTMX -->
+<div id="history-panel" class="space-y-3">
+    <div class="flex items-center justify-between">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-accent-dim">
+            Execution History
+            {% if total > 0 %}
+            <span class="text-accent-dim/60">({{ total }})</span>
+            {% endif %}
+        </h3>
+        {% if records and records|length >= 2 %}
+        <button
+            id="compare-btn"
+            class="text-accent-dim hover:text-accent text-xs px-2 py-0.5 rounded border border-surface-lighter hover:border-accent/50 transition-colors hidden"
+            onclick="compareSelected()"
+            title="Compare two selected records"
+        >Compare</button>
+        {% endif %}
+    </div>
+
+    {% if records %}
+    <div class="space-y-1">
+        {% for record in records %}
+        <div class="group flex items-center gap-2 px-2 py-1.5 rounded hover:bg-surface-lighter/50 transition-colors text-sm border border-transparent hover:border-surface-lighter">
+            <!-- Compare checkbox -->
+            <input
+                type="checkbox"
+                class="compare-check shrink-0 accent-accent"
+                value="{{ record.id }}"
+                onchange="updateCompareBtn()"
+                title="Select for comparison"
+            >
+
+            <!-- Status indicator -->
+            {% if record.result.error %}
+            <span class="text-status-error font-mono text-xs w-10 text-right shrink-0">ERR</span>
+            {% elif record.result.status_code >= 400 %}
+            <span class="text-status-error font-mono text-xs w-10 text-right shrink-0">{{ record.result.status_code }}</span>
+            {% elif record.result.status_code >= 300 %}
+            <span class="text-status-redirect font-mono text-xs w-10 text-right shrink-0">{{ record.result.status_code }}</span>
+            {% else %}
+            <span class="text-status-success font-mono text-xs w-10 text-right shrink-0">{{ record.result.status_code }}</span>
+            {% endif %}
+
+            <!-- Method badge -->
+            <span class="font-mono text-xs text-accent-dim w-8 shrink-0">{{ record.result.request.method.value }}</span>
+
+            <!-- Request name / URL -->
+            <button
+                class="flex-1 text-left text-accent truncate hover:text-accent cursor-pointer bg-transparent border-none p-0"
+                hx-get="/history/{{ record.id }}"
+                hx-target="#history-detail-container"
+                hx-swap="innerHTML"
+                title="{{ record.request_name or record.result.resolved_url }}"
+            >
+                {{ record.request_name or record.result.resolved_url }}
+            </button>
+
+            <!-- Elapsed time -->
+            <span class="text-xs text-accent-dim shrink-0">
+                {% if record.result.elapsed_ms < 1000 %}
+                {{ "%.0f"|format(record.result.elapsed_ms) }}ms
+                {% else %}
+                {{ "%.2f"|format(record.result.elapsed_ms / 1000) }}s
+                {% endif %}
+            </span>
+
+            <!-- Timestamp -->
+            <span class="text-xs text-accent-dim/60 shrink-0 w-16 text-right">
+                {{ record.timestamp.strftime("%H:%M:%S") }}
+            </span>
+
+            <!-- Delete button -->
+            <button
+                class="opacity-0 group-hover:opacity-100 text-accent-dim hover:text-status-error text-xs transition-opacity"
+                hx-delete="/history/{{ record.id }}"
+                hx-target="#history-list-container"
+                hx-swap="innerHTML"
+                hx-confirm="Delete this history record?"
+                title="Delete record"
+            >&times;</button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <!-- Pagination -->
+    {% if total > per_page %}
+    <div class="flex items-center justify-between pt-2 border-t border-surface-lighter">
+        {% if page > 1 %}
+        <button
+            class="text-xs text-accent-dim hover:text-accent"
+            hx-get="/history?page={{ page - 1 }}&per_page={{ per_page }}{% if file_key %}&file_key={{ file_key }}{% endif %}"
+            hx-target="#history-list-container"
+            hx-swap="innerHTML"
+        >Previous</button>
+        {% else %}
+        <span></span>
+        {% endif %}
+
+        <span class="text-xs text-accent-dim">Page {{ page }}</span>
+
+        {% if page * per_page < total %}
+        <button
+            class="text-xs text-accent-dim hover:text-accent"
+            hx-get="/history?page={{ page + 1 }}&per_page={{ per_page }}{% if file_key %}&file_key={{ file_key }}{% endif %}"
+            hx-target="#history-list-container"
+            hx-swap="innerHTML"
+        >Next</button>
+        {% else %}
+        <span></span>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {% else %}
+    <p class="text-sm text-accent-dim py-4 text-center">No execution history yet. Run some requests to see results here.</p>
+    {% endif %}
+</div>
+
+<script>
+function updateCompareBtn() {
+    var checked = document.querySelectorAll('.compare-check:checked');
+    var btn = document.getElementById('compare-btn');
+    if (btn) {
+        if (checked.length === 2) {
+            btn.classList.remove('hidden');
+        } else {
+            btn.classList.add('hidden');
+        }
+        // Disable extra checkboxes when 2 are already selected
+        document.querySelectorAll('.compare-check').forEach(function(cb) {
+            if (!cb.checked && checked.length >= 2) {
+                cb.disabled = true;
+            } else {
+                cb.disabled = false;
+            }
+        });
+    }
+}
+function compareSelected() {
+    var checked = document.querySelectorAll('.compare-check:checked');
+    if (checked.length !== 2) return;
+    var left = checked[0].value;
+    var right = checked[1].value;
+    htmx.ajax('GET', '/compare?left=' + left + '&right=' + right, {target: '#history-detail-container', swap: 'innerHTML'});
+}
+</script>

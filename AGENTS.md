@@ -62,7 +62,7 @@ src/fling/
 
 ## Implementation Status
 
-### Completed (25 of 25 original tasks + Web Overhaul Phases A–C)
+### Completed (25 of 25 original tasks + Web Overhaul Phases A–E)
 
 | Phase | Task | Description | Commit |
 |-------|------|-------------|--------|
@@ -89,7 +89,9 @@ src/fling/
 | 6 | 6.2 | Output formats and CI flags | `74e13a7` |
 | A | — | Bundle web assets locally (Tailwind, vendor JS) | `eb39643` |
 | B | — | Directory scanning + multi-file state | `65c9068` |
-| C | — | Live file watching with SSE hot-reload | *(pending commit)* |
+| C | — | Live file watching with SSE hot-reload | `549a78e` |
+| D | — | UI polish & UX improvements (search, keyboard nav, responsive) | `b9a8a0c` |
+| E | — | Advanced features (env editing, history, comparison) | `91a639b` |
 
 ### Remaining
 
@@ -98,8 +100,6 @@ src/fling/
 | 6 | 6.3 | File formatting (`fling fmt`) and validation (`fling validate`) |
 | 7 | 7.1 | Documentation |
 | 7 | 7.2 | CI/CD (GitHub Actions) |
-| D | — | UI polish & UX improvements (search, keyboard nav, responsive) |
-| E | — | Advanced features (env editing, history, comparison) |
 
 ## Conventions
 

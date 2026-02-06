@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from fling.core.environment import (
+    PUBLIC_ENV_FILENAME,
     get_dotenv_variables,
     list_environments,
     load_dotenv_file,
@@ -13,6 +14,7 @@ from fling.core.environment import (
     load_environment,
     merge_environments,
     resolve_environment,
+    save_environment,
 )
 from fling.core.models import EnvironmentFile
 
@@ -359,3 +361,124 @@ class TestGetDotenvVariables:
         dotenv_vars = get_dotenv_variables(env)
         for value in dotenv_vars.values():
             assert isinstance(value, str)
+
+
+# ---------------------------------------------------------------------------
+# save_environment
+# ---------------------------------------------------------------------------
+
+
+class TestSaveEnvironment:
+    """Tests for save_environment."""
+
+    def test_save_creates_file(self, tmp_path: Path) -> None:
+        """Save should create the public env file in the target directory."""
+        data = {"dev": {"token": "abc"}}
+        result = save_environment(tmp_path, data)
+        assert result == tmp_path / PUBLIC_ENV_FILENAME
+        assert result.is_file()
+
+    def test_save_roundtrip(self, tmp_path: Path) -> None:
+        """Data written by save should be loadable by load_env_json."""
+        data = {
+            "_shared": {"baseUrl": "https://api.example.com"},
+            "development": {"token": "dev-123", "debug": True},
+            "production": {"token": "prod-456", "debug": False},
+        }
+        save_environment(tmp_path, data)
+        loaded = load_env_json(tmp_path / PUBLIC_ENV_FILENAME)
+        assert loaded == data
+
+    def test_save_overwrites_existing(self, tmp_path: Path) -> None:
+        """Save should overwrite an existing env file."""
+        old_data = {"dev": {"old_key": "old_val"}}
+        new_data = {"staging": {"new_key": "new_val"}}
+        save_environment(tmp_path, old_data)
+        save_environment(tmp_path, new_data)
+        loaded = load_env_json(tmp_path / PUBLIC_ENV_FILENAME)
+        assert loaded == new_data
+
+    def test_save_pretty_prints_json(self, tmp_path: Path) -> None:
+        """Saved JSON should be human-readable (indented)."""
+        data = {"dev": {"token": "t"}}
+        save_environment(tmp_path, data)
+        content = (tmp_path / PUBLIC_ENV_FILENAME).read_text(encoding="utf-8")
+        assert "\n" in content
+        assert "    " in content  # 4-space indent
+
+    def test_save_ends_with_newline(self, tmp_path: Path) -> None:
+        """File should end with a trailing newline."""
+        data = {"dev": {"token": "t"}}
+        save_environment(tmp_path, data)
+        content = (tmp_path / PUBLIC_ENV_FILENAME).read_text(encoding="utf-8")
+        assert content.endswith("\n")
+
+    def test_save_empty_environments(self, tmp_path: Path) -> None:
+        """Saving an empty dict should produce a valid empty JSON object."""
+        save_environment(tmp_path, {})
+        loaded = load_env_json(tmp_path / PUBLIC_ENV_FILENAME)
+        assert loaded == {}
+
+    def test_save_preserves_non_string_values(self, tmp_path: Path) -> None:
+        """Boolean, numeric, and null values should survive the roundtrip."""
+        data = {
+            "dev": {
+                "debug": True,
+                "count": 42,
+                "ratio": 3.14,
+                "nothing": None,
+            },
+        }
+        save_environment(tmp_path, data)
+        content = (tmp_path / PUBLIC_ENV_FILENAME).read_text(encoding="utf-8")
+        parsed = json.loads(content)
+        assert parsed["dev"]["debug"] is True
+        assert parsed["dev"]["count"] == 42
+        assert parsed["dev"]["ratio"] == 3.14
+        assert parsed["dev"]["nothing"] is None
+
+    def test_save_unicode_values(self, tmp_path: Path) -> None:
+        """Unicode characters should be preserved (not escaped)."""
+        data = {"dev": {"greeting": "Hej varlden!"}}
+        save_environment(tmp_path, data)
+        content = (tmp_path / PUBLIC_ENV_FILENAME).read_text(encoding="utf-8")
+        assert "Hej varlden!" in content
+
+    def test_save_custom_filename(self, tmp_path: Path) -> None:
+        """Should support a custom filename."""
+        data = {"dev": {"token": "t"}}
+        result = save_environment(tmp_path, data, public_filename="custom-env.json")
+        assert result == tmp_path / "custom-env.json"
+        assert result.is_file()
+
+    def test_save_rejects_non_dict_root(self, tmp_path: Path) -> None:
+        """Should raise TypeError if env_data is not a dict."""
+        with pytest.raises(TypeError, match="must be a dict"):
+            save_environment(tmp_path, ["not", "a", "dict"])  # type: ignore[arg-type]
+
+    def test_save_rejects_non_dict_environment(self, tmp_path: Path) -> None:
+        """Should raise ValueError if an environment value is not a dict."""
+        with pytest.raises(ValueError, match="must map to a dict"):
+            save_environment(tmp_path, {"dev": "not-a-dict"})  # type: ignore[dict-item]
+
+    def test_save_load_environment_integration(self, tmp_path: Path) -> None:
+        """Full integration: save -> load_environment -> resolve."""
+        data = {
+            "_shared": {"apiVersion": "v3"},
+            "dev": {"baseUrl": "http://localhost:8000", "token": "dev-token"},
+        }
+        save_environment(tmp_path, data)
+        env = load_environment(tmp_path)
+        names = list_environments(env)
+        assert names == ["dev"]
+        resolved = resolve_environment(env, "dev")
+        assert resolved["apiVersion"] == "v3"
+        assert resolved["baseUrl"] == "http://localhost:8000"
+        assert resolved["token"] == "dev-token"
+
+    def test_save_no_temp_file_left_on_success(self, tmp_path: Path) -> None:
+        """After a successful save, no temporary files should remain."""
+        save_environment(tmp_path, {"dev": {"k": "v"}})
+        files = list(tmp_path.iterdir())
+        assert len(files) == 1
+        assert files[0].name == PUBLIC_ENV_FILENAME

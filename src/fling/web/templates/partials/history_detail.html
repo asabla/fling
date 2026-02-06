@@ -1,0 +1,137 @@
+<!-- History detail partial — loaded via HTMX when clicking a history record -->
+<div id="history-detail" class="space-y-3">
+    <div class="flex items-center justify-between">
+        <button
+            class="text-xs text-accent-dim hover:text-accent"
+            hx-get="/history"
+            hx-target="#history-list-container"
+            hx-swap="innerHTML"
+            onclick="document.getElementById('history-detail-container').innerHTML=''"
+        >Back to list</button>
+        <span class="text-xs text-accent-dim/60">{{ record.timestamp.strftime("%Y-%m-%d %H:%M:%S UTC") }}</span>
+    </div>
+
+    <!-- Request info -->
+    <div class="border border-surface-lighter rounded p-3 space-y-2">
+        <div class="flex items-center gap-2">
+            <span class="font-mono text-xs font-bold text-accent">{{ record.result.request.method.value }}</span>
+            <span class="text-sm text-accent truncate">{{ record.result.resolved_url }}</span>
+        </div>
+
+        {% if record.request_name %}
+        <div class="text-xs text-accent-dim">Name: {{ record.request_name }}</div>
+        {% endif %}
+
+        {% if record.env_name %}
+        <div class="text-xs text-accent-dim">Environment: {{ record.env_name }}</div>
+        {% endif %}
+
+        {% if record.file_key %}
+        <div class="text-xs text-accent-dim">File: {{ record.file_key }}</div>
+        {% endif %}
+    </div>
+
+    <!-- Response summary -->
+    <div class="border border-surface-lighter rounded p-3 space-y-2">
+        <div class="flex items-center gap-4 text-sm">
+            {% if record.result.error %}
+            <span class="text-status-error font-bold">Error</span>
+            {% elif record.result.status_code >= 400 %}
+            <span class="text-status-error font-bold">{{ record.result.status_code }}</span>
+            {% elif record.result.status_code >= 300 %}
+            <span class="text-status-redirect font-bold">{{ record.result.status_code }}</span>
+            {% else %}
+            <span class="text-status-success font-bold">{{ record.result.status_code }}</span>
+            {% endif %}
+
+            <span class="text-xs text-accent-dim">
+                {% if record.result.elapsed_ms < 1000 %}
+                {{ "%.0f"|format(record.result.elapsed_ms) }}ms
+                {% else %}
+                {{ "%.2f"|format(record.result.elapsed_ms / 1000) }}s
+                {% endif %}
+            </span>
+
+            {% if record.result.response_body %}
+            <span class="text-xs text-accent-dim">
+                {% set body_size = record.result.response_body|length %}
+                {% if body_size < 1024 %}
+                {{ body_size }} B
+                {% elif body_size < 1048576 %}
+                {{ "%.1f"|format(body_size / 1024) }} KB
+                {% else %}
+                {{ "%.1f"|format(body_size / 1048576) }} MB
+                {% endif %}
+            </span>
+            {% endif %}
+        </div>
+
+        {% if record.result.error %}
+        <div class="text-sm text-status-error bg-status-error/10 rounded p-2 font-mono">{{ record.result.error }}</div>
+        {% endif %}
+    </div>
+
+    <!-- Response headers -->
+    {% if record.result.response_headers %}
+    <details class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            Response Headers ({{ record.result.response_headers|length }})
+        </summary>
+        <div class="px-3 pb-2">
+            <table class="w-full text-xs">
+                {% for name, values in record.result.response_headers.items() %}
+                {% for value in values %}
+                <tr class="border-b border-surface-lighter/50">
+                    <td class="py-1 pr-3 text-accent-dim font-mono whitespace-nowrap align-top">{{ name }}</td>
+                    <td class="py-1 text-accent font-mono break-all">{{ value }}</td>
+                </tr>
+                {% endfor %}
+                {% endfor %}
+            </table>
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Response body -->
+    {% if record.result.response_body %}
+    <details open class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            Response Body
+        </summary>
+        <div class="px-3 pb-2">
+            <pre class="text-xs text-accent font-mono whitespace-pre-wrap break-all max-h-64 overflow-y-auto bg-surface-lighter/20 rounded p-2">{{ record.result.response_body }}</pre>
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Request headers (sent) -->
+    {% if record.result.resolved_headers %}
+    <details class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            Request Headers ({{ record.result.resolved_headers|length }})
+        </summary>
+        <div class="px-3 pb-2">
+            <table class="w-full text-xs">
+                {% for name, value in record.result.resolved_headers.items() %}
+                <tr class="border-b border-surface-lighter/50">
+                    <td class="py-1 pr-3 text-accent-dim font-mono whitespace-nowrap align-top">{{ name }}</td>
+                    <td class="py-1 text-accent font-mono break-all">{{ value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- Request body (sent) -->
+    {% if record.result.resolved_body %}
+    <details class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            Request Body
+        </summary>
+        <div class="px-3 pb-2">
+            <pre class="text-xs text-accent font-mono whitespace-pre-wrap break-all max-h-48 overflow-y-auto bg-surface-lighter/20 rounded p-2">{{ record.result.resolved_body }}</pre>
+        </div>
+    </details>
+    {% endif %}
+</div>

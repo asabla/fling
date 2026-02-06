@@ -1,0 +1,112 @@
+<!-- Environment variables table for a single environment -->
+<div class="env-variable-editor" data-env-name="{{ env_name }}">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-xs text-accent-dim uppercase tracking-wider">
+                <th class="text-left py-1 pr-2 w-1/3">Variable</th>
+                <th class="text-left py-1 pr-2">Value</th>
+                <th class="text-right py-1 w-16">Actions</th>
+            </tr>
+        </thead>
+        <tbody id="env-var-rows-{{ env_name }}">
+            {% for key, value in variables.items() %}
+            <tr class="border-t border-surface-lighter/50 group">
+                <td class="py-1.5 pr-2">
+                    <input type="text" value="{{ key }}" name="var_name"
+                           class="w-full bg-transparent border border-transparent hover:border-surface-lighter focus:border-accent rounded px-1.5 py-0.5 text-sm text-accent focus:outline-none"
+                           readonly
+                           ondblclick="this.readOnly=false; this.classList.add('border-accent'); this.select()"
+                           onblur="this.readOnly=true; this.classList.remove('border-accent')">
+                </td>
+                <td class="py-1.5 pr-2">
+                    <input type="text" value="{{ value }}" name="var_value"
+                           class="w-full bg-transparent border border-transparent hover:border-surface-lighter focus:border-accent rounded px-1.5 py-0.5 text-sm text-accent focus:outline-none"
+                           readonly
+                           ondblclick="this.readOnly=false; this.classList.add('border-accent'); this.select()"
+                           onblur="this.readOnly=true; this.classList.remove('border-accent')">
+                </td>
+                <td class="py-1.5 text-right">
+                    <button type="button"
+                            class="text-xs text-status-error opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity px-1"
+                            onclick="this.closest('tr').remove()"
+                            title="Remove variable"
+                    >&times;</button>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    <!-- Add variable row -->
+    <div class="flex items-center gap-2 mt-2 pt-2 border-t border-surface-lighter/30">
+        <input type="text" placeholder="name" id="new-var-name-{{ env_name }}"
+               class="flex-1 bg-surface border border-surface-lighter rounded px-2 py-1 text-sm text-accent placeholder-accent-dim/50 focus:border-accent focus:outline-none">
+        <input type="text" placeholder="value" id="new-var-value-{{ env_name }}"
+               class="flex-1 bg-surface border border-surface-lighter rounded px-2 py-1 text-sm text-accent placeholder-accent-dim/50 focus:border-accent focus:outline-none">
+        <button type="button"
+                class="text-xs px-2 py-1 rounded border border-surface-lighter text-accent-dim hover:text-accent hover:border-accent/50 transition-colors"
+                onclick="addEnvVar('{{ env_name }}')"
+        >Add</button>
+    </div>
+
+    <!-- Save button -->
+    <div class="flex justify-end mt-3">
+        <button type="button"
+                class="text-xs px-3 py-1.5 rounded bg-method-get/20 text-method-get font-bold hover:bg-method-get/30 transition-colors"
+                onclick="saveEnvVars('{{ env_name }}')"
+        >Save</button>
+    </div>
+</div>
+
+<script>
+function addEnvVar(envName) {
+    var nameInput = document.getElementById('new-var-name-' + envName);
+    var valueInput = document.getElementById('new-var-value-' + envName);
+    if (!nameInput || !nameInput.value.trim()) return;
+
+    var tbody = document.getElementById('env-var-rows-' + envName);
+    var tr = document.createElement('tr');
+    tr.className = 'border-t border-surface-lighter/50 group';
+    tr.innerHTML = '<td class="py-1.5 pr-2"><input type="text" value="' + nameInput.value.trim() + '" name="var_name" class="w-full bg-transparent border border-transparent hover:border-surface-lighter focus:border-accent rounded px-1.5 py-0.5 text-sm text-accent focus:outline-none" readonly ondblclick="this.readOnly=false; this.classList.add(\'border-accent\'); this.select()" onblur="this.readOnly=true; this.classList.remove(\'border-accent\')"></td>'
+        + '<td class="py-1.5 pr-2"><input type="text" value="' + (valueInput.value || '') + '" name="var_value" class="w-full bg-transparent border border-transparent hover:border-surface-lighter focus:border-accent rounded px-1.5 py-0.5 text-sm text-accent focus:outline-none" readonly ondblclick="this.readOnly=false; this.classList.add(\'border-accent\'); this.select()" onblur="this.readOnly=true; this.classList.remove(\'border-accent\')"></td>'
+        + '<td class="py-1.5 text-right"><button type="button" class="text-xs text-status-error opacity-0 group-hover:opacity-100 hover:text-red-400 transition-opacity px-1" onclick="this.closest(\'tr\').remove()" title="Remove variable">&times;</button></td>';
+    tbody.appendChild(tr);
+    nameInput.value = '';
+    valueInput.value = '';
+    nameInput.focus();
+}
+
+function saveEnvVars(envName) {
+    var tbody = document.getElementById('env-var-rows-' + envName);
+    if (!tbody) return;
+    var rows = tbody.querySelectorAll('tr');
+    var variables = [];
+    rows.forEach(function(row) {
+        var nameEl = row.querySelector('[name="var_name"]');
+        var valueEl = row.querySelector('[name="var_value"]');
+        if (nameEl && nameEl.value.trim()) {
+            variables.push({ name: nameEl.value.trim(), value: valueEl ? valueEl.value : '' });
+        }
+    });
+
+    fetch('/environments/' + encodeURIComponent(envName), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ variables: variables })
+    }).then(function(resp) {
+        if (resp.ok) {
+            return resp.text().then(function(html) {
+                var container = document.getElementById('env-vars-' + envName);
+                if (container) container.innerHTML = html;
+                showToast('Saved ' + envName + ' environment', 'modified');
+            });
+        } else {
+            return resp.json().then(function(data) {
+                showToast('Error: ' + (data.detail || 'Save failed'), 'deleted');
+            });
+        }
+    }).catch(function(err) {
+        showToast('Error: ' + err.message, 'deleted');
+    });
+}
+</script>

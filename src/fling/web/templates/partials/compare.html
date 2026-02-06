@@ -1,0 +1,131 @@
+<!-- Response comparison partial — loaded via HTMX or into the history modal -->
+<div id="comparison-view" class="space-y-4">
+
+    <!-- Header: record summaries -->
+    <div class="grid grid-cols-2 gap-3">
+        <!-- Left record -->
+        <div class="border border-surface-lighter rounded p-3 space-y-1">
+            <div class="text-xs font-semibold text-accent-dim uppercase tracking-wider">Baseline</div>
+            <div class="flex items-center gap-2 text-sm">
+                <span class="font-mono text-xs font-bold text-accent">{{ left_record.result.request.method.value }}</span>
+                {% if left_record.result.error %}
+                <span class="text-status-error font-bold text-xs">ERR</span>
+                {% elif left_record.result.status_code >= 400 %}
+                <span class="text-status-error font-bold text-xs">{{ left_record.result.status_code }}</span>
+                {% elif left_record.result.status_code >= 300 %}
+                <span class="text-status-redirect font-bold text-xs">{{ left_record.result.status_code }}</span>
+                {% else %}
+                <span class="text-status-success font-bold text-xs">{{ left_record.result.status_code }}</span>
+                {% endif %}
+                <span class="text-xs text-accent-dim">
+                    {% if left_record.result.elapsed_ms < 1000 %}
+                    {{ "%.0f"|format(left_record.result.elapsed_ms) }}ms
+                    {% else %}
+                    {{ "%.2f"|format(left_record.result.elapsed_ms / 1000) }}s
+                    {% endif %}
+                </span>
+            </div>
+            <div class="text-xs text-accent truncate" title="{{ left_record.result.resolved_url }}">{{ left_record.result.resolved_url }}</div>
+            <div class="text-xs text-accent-dim/60">{{ left_record.timestamp.strftime("%Y-%m-%d %H:%M:%S") }}</div>
+        </div>
+
+        <!-- Right record -->
+        <div class="border border-surface-lighter rounded p-3 space-y-1">
+            <div class="text-xs font-semibold text-accent-dim uppercase tracking-wider">Comparison</div>
+            <div class="flex items-center gap-2 text-sm">
+                <span class="font-mono text-xs font-bold text-accent">{{ right_record.result.request.method.value }}</span>
+                {% if right_record.result.error %}
+                <span class="text-status-error font-bold text-xs">ERR</span>
+                {% elif right_record.result.status_code >= 400 %}
+                <span class="text-status-error font-bold text-xs">{{ right_record.result.status_code }}</span>
+                {% elif right_record.result.status_code >= 300 %}
+                <span class="text-status-redirect font-bold text-xs">{{ right_record.result.status_code }}</span>
+                {% else %}
+                <span class="text-status-success font-bold text-xs">{{ right_record.result.status_code }}</span>
+                {% endif %}
+                <span class="text-xs text-accent-dim">
+                    {% if right_record.result.elapsed_ms < 1000 %}
+                    {{ "%.0f"|format(right_record.result.elapsed_ms) }}ms
+                    {% else %}
+                    {{ "%.2f"|format(right_record.result.elapsed_ms / 1000) }}s
+                    {% endif %}
+                </span>
+            </div>
+            <div class="text-xs text-accent truncate" title="{{ right_record.result.resolved_url }}">{{ right_record.result.resolved_url }}</div>
+            <div class="text-xs text-accent-dim/60">{{ right_record.timestamp.strftime("%Y-%m-%d %H:%M:%S") }}</div>
+        </div>
+    </div>
+
+    <!-- Diff summary -->
+    <div class="flex items-center gap-3 text-xs text-accent-dim">
+        {% if body_diff.identical %}
+        <span class="text-status-success font-semibold">Response bodies are identical</span>
+        {% else %}
+        <span class="text-status-error font-semibold">{{ body_diff.changes }} line{{ "s" if body_diff.changes != 1 else "" }} changed</span>
+        {% endif %}
+        {% if json_diff is not none %}
+        <span class="text-accent-dim/60">|</span>
+        {% if json_diff.identical %}
+        <span class="text-status-success">JSON structure identical</span>
+        {% else %}
+        <span class="text-status-error">{{ json_diff.entries|length }} structural difference{{ "s" if json_diff.entries|length != 1 else "" }}</span>
+        {% endif %}
+        {% endif %}
+    </div>
+
+    <!-- Text diff (split pane) -->
+    {% if not body_diff.identical %}
+    <details open class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            Line-by-line diff
+        </summary>
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs font-mono">
+                <thead>
+                    <tr class="border-b border-surface-lighter">
+                        <th class="w-10 px-2 py-1 text-right text-accent-dim/50">#</th>
+                        <th class="w-1/2 px-2 py-1 text-left text-accent-dim">Baseline</th>
+                        <th class="w-10 px-2 py-1 text-right text-accent-dim/50">#</th>
+                        <th class="w-1/2 px-2 py-1 text-left text-accent-dim">Comparison</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for line in body_diff.lines %}
+                    <tr class="{% if line.kind.value == 'add' %}bg-status-success/10{% elif line.kind.value == 'remove' %}bg-status-error/10{% elif line.kind.value == 'change' %}bg-yellow-500/10{% endif %} border-b border-surface-lighter/30">
+                        <td class="w-10 px-2 py-0.5 text-right text-accent-dim/40 select-none">{{ line.left_lineno or "" }}</td>
+                        <td class="px-2 py-0.5 whitespace-pre-wrap break-all {% if line.kind.value == 'remove' %}text-status-error{% elif line.kind.value == 'change' %}text-status-error{% else %}text-accent{% endif %}">{{ line.left_text }}</td>
+                        <td class="w-10 px-2 py-0.5 text-right text-accent-dim/40 select-none">{{ line.right_lineno or "" }}</td>
+                        <td class="px-2 py-0.5 whitespace-pre-wrap break-all {% if line.kind.value == 'add' %}text-status-success{% elif line.kind.value == 'change' %}text-status-success{% else %}text-accent{% endif %}">{{ line.right_text }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </details>
+    {% endif %}
+
+    <!-- JSON structural diff -->
+    {% if json_diff is not none and not json_diff.identical %}
+    <details class="border border-surface-lighter rounded">
+        <summary class="px-3 py-2 text-xs font-semibold text-accent-dim cursor-pointer hover:bg-surface-lighter/30">
+            JSON structural differences ({{ json_diff.entries|length }})
+        </summary>
+        <div class="px-3 pb-2 space-y-1">
+            {% for entry in json_diff.entries %}
+            <div class="flex items-start gap-2 text-xs py-1 border-b border-surface-lighter/30">
+                <span class="font-mono text-accent-dim shrink-0">{{ entry.path }}</span>
+                {% if entry.kind.value == 'add' %}
+                <span class="text-status-success">+ {{ entry.right_value }}</span>
+                {% elif entry.kind.value == 'remove' %}
+                <span class="text-status-error">- {{ entry.left_value }}</span>
+                {% elif entry.kind.value == 'change' %}
+                <span class="text-status-error">- {{ entry.left_value }}</span>
+                <span class="text-status-success">+ {{ entry.right_value }}</span>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </details>
+    {% endif %}
+
+</div>

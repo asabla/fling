@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 if TYPE_CHECKING:
+    import sqlite3
     from collections.abc import AsyncGenerator
 
     from fling.core.models import HttpFile
@@ -31,7 +32,7 @@ _STATIC_DIR = _WEB_DIR / "static"
 
 @contextlib.asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Manage the file-watcher lifecycle."""
+    """Manage the file-watcher and history-database lifecycles."""
     watcher: FileWatcher | None = app.state.watcher
     if watcher is not None:
         watcher.start()
@@ -40,6 +41,10 @@ async def _lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     finally:
         if watcher is not None:
             await watcher.stop()
+        # Close the history database connection if open
+        history_conn: sqlite3.Connection | None = getattr(app.state, "history_conn", None)
+        if history_conn is not None:
+            history_conn.close()
 
 
 def create_app(
@@ -110,12 +115,31 @@ def create_app(
         watcher = _FileWatcher(resolved_dir, files)
     app.state.watcher = watcher
 
+    # Execution history database
+    from fling.web.history import init_db as _init_history_db
+
+    history_conn = None
+    if resolved_dir:
+        try:
+            history_conn = _init_history_db(resolved_dir)
+        except Exception:
+            import logging
+
+            logging.getLogger(__name__).warning("Could not initialise history database", exc_info=True)
+    app.state.history_conn = history_conn
+
     # Register routes
+    from fling.web.routes.compare import router as compare_router
+    from fling.web.routes.environments import router as environments_router
     from fling.web.routes.execution import router as execution_router
+    from fling.web.routes.history import router as history_router
     from fling.web.routes.pages import router as pages_router
     from fling.web.routes.watch import router as watch_router
 
     app.include_router(pages_router)
+    app.include_router(environments_router)
+    app.include_router(history_router)
+    app.include_router(compare_router)
     app.include_router(execution_router)
     app.include_router(watch_router)
 
