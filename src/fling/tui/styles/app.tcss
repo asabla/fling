@@ -1,1 +1,40 @@
-/* fling TUI styles */
+/* fling TUI styles — main application layout */
+
+/* Top-level horizontal split */
+#main-layout {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* Sidebar: collection tree on the left */
+#sidebar {
+    width: 35;
+    min-width: 20;
+    max-width: 60;
+    height: 1fr;
+    border-right: solid $surface-lighten-2;
+    padding: 0;
+}
+
+/* Content area: takes remaining horizontal space */
+#content {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* Collection tree fills the sidebar */
+#collection-tree {
+    width: 1fr;
+    height: 1fr;
+    padding: 0 1;
+}
+
+/* Request detail: top half of content */
+#request-detail {
+    height: 1fr;
+}
+
+/* Response panel: bottom half of content */
+#response-panel {
+    height: 1fr;
+}

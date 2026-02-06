@@ -380,3 +380,14 @@ def convert(postman_file: str, output: str | None, split_folders: bool) -> None:
         file_path.write_text(content, encoding="utf-8")
         console.print(f"[green]Created[/] {file_path}")
         console.print(f"\n[bold]Converted collection '{collection.info.name}'[/]")
+
+
+@main.command()
+@click.argument("file", required=False, type=click.Path(exists=True))
+@click.option("--env", "-e", help="Environment name to use.")
+def tui(file: str | None, env: str | None) -> None:
+    """Launch the interactive TUI for a .http file."""
+    from fling.tui.app import FlingApp
+
+    app = FlingApp(file_path=file, env_name=env)
+    app.run()
