@@ -194,11 +194,23 @@ async def get_file_request(request: Request, file_key: str, index: int) -> HTMLR
         ctx,
     )
 
-    # Combine: main swap content + OOB swap for tree
+    # Render Run All button with updated file_key (OOB swap)
+    run_all_resp = templates.TemplateResponse(
+        request,
+        "partials/run_all_button.html",
+        {"selected_file_key": file_key},
+    )
+
+    # Combine: main swap content + OOB swaps for tree and Run All button
     detail_html = detail_resp.body.decode()
     tree_html = tree_resp.body.decode()
+    run_all_html = run_all_resp.body.decode()
 
-    combined = f'{detail_html}\n<div id="file-tree" hx-swap-oob="innerHTML:#sidebar-tree">{tree_html}</div>'
+    combined = (
+        f"{detail_html}\n"
+        f'<div id="file-tree" hx-swap-oob="innerHTML:#sidebar-tree">{tree_html}</div>\n'
+        f'<div hx-swap-oob="outerHTML:#run-all-btn">{run_all_html}</div>'
+    )
 
     return HTMLResponse(combined)
 

@@ -74,18 +74,7 @@
     <div class="p-3">
         <div class="flex items-center justify-between mb-2">
             <h2 class="text-xs font-semibold uppercase tracking-wider text-accent-dim">Requests</h2>
-            {% if requests %}
-            <button
-                id="run-all-btn"
-                class="bg-method-get/20 text-method-get font-bold text-xs px-3 py-1 rounded hover:bg-method-get/30 transition-colors"
-                hx-ext="sse"
-                sse-connect="/execute/{{ selected_file_key }}/all"
-                sse-swap="log"
-                hx-target="#execution-log-entries"
-                hx-swap="beforeend scroll:#execution-log-entries:bottom"
-                sse-close="complete"
-            >Run All</button>
-            {% endif %}
+            {% include "partials/run_all_button.html" %}
         </div>
         <!-- Search / filter -->
         <div class="mb-2">

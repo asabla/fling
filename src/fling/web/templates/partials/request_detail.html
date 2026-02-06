@@ -15,12 +15,8 @@
         <button
             id="send-btn"
             class="bg-accent text-surface font-bold text-sm px-4 py-1 rounded hover:opacity-90 transition-opacity shrink-0"
-            hx-ext="sse"
-            sse-connect="/execute/{{ selected_file_key }}/request/{{ selected_index }}"
-            sse-swap="response"
-            hx-target="#response-content"
-            hx-swap="innerHTML"
-            sse-close="complete"
+            data-sse-url="/execute/{{ selected_file_key }}/request/{{ selected_index }}"
+            onclick="startSSE(this, 'response', '#response-content', 'innerHTML')"
         >Send</button>
         {% endif %}
     </div>

@@ -1,0 +1,16 @@
+### Simple GET
+# @name simple_get
+GET https://httpbin.org/get
+
+### GET with headers
+# @name get_with_headers
+GET https://httpbin.org/headers
+Accept: application/json
+X-Custom-Header: fling-test
+
+### POST JSON
+# @name post_json
+POST https://httpbin.org/post
+Content-Type: application/json
+
+{"message": "hello from fling", "number": 42}

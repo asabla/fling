@@ -191,6 +191,9 @@ cython_debug/
 # Tailwind standalone CLI binary
 .bin/
 
+# fling project data
+.fling/
+
 # Ruff stuff:
 .ruff_cache/
 

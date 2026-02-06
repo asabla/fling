@@ -1,0 +1,9 @@
+<!-- Run All button — re-rendered via OOB swap when switching files -->
+{% if selected_file_key %}
+<button
+    id="run-all-btn"
+    class="bg-method-get/20 text-method-get font-bold text-xs px-3 py-1 rounded hover:bg-method-get/30 transition-colors"
+    data-sse-url="/execute/{{ selected_file_key }}/all"
+    onclick="startSSE(this, 'log', '#execution-log-entries', 'beforeend')"
+>Run All</button>
+{% endif %}

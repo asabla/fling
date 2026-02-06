@@ -72,15 +72,64 @@
             }
         }
 
-        // Listen for SSE open/close on Send and Run All buttons
-        document.addEventListener('htmx:sseOpen', function(e) {
-            var btn = e.target.closest('#send-btn, #run-all-btn');
-            if (btn) setButtonLoading(btn, true);
-        });
-        document.addEventListener('htmx:sseClose', function(e) {
-            var btn = e.target.closest('#send-btn, #run-all-btn');
-            if (btn) setButtonLoading(btn, false);
-        });
+        // Click-triggered SSE for Send and Run All buttons.
+        // Opens an EventSource on click, streams events into the target element,
+        // and closes the connection when a "complete" event is received.
+        //
+        // Parameters:
+        //   btn       — the button element (must have data-sse-url attribute)
+        //   eventName — SSE event name to listen for ("response" or "log")
+        //   target    — CSS selector for the element to swap content into
+        //   swapMode  — "innerHTML" (replace) or "beforeend" (append)
+        function startSSE(btn, eventName, target, swapMode) {
+            var url = btn.getAttribute('data-sse-url');
+            if (!url || btn.disabled) return;
+
+            var targetEl = document.querySelector(target);
+            if (!targetEl) return;
+
+            setButtonLoading(btn, true);
+
+            var source = new EventSource(url);
+
+            source.addEventListener(eventName, function(e) {
+                if (swapMode === 'beforeend') {
+                    targetEl.insertAdjacentHTML('beforeend', e.data);
+                    targetEl.scrollTop = targetEl.scrollHeight;
+                } else {
+                    targetEl.innerHTML = e.data;
+                }
+                // Re-highlight code after swap
+                Prism.highlightAll();
+            });
+
+            // Handle progress events (Send button shows "Preparing..." / "Sending...")
+            source.addEventListener('progress', function(e) {
+                targetEl.innerHTML = e.data;
+            });
+
+            // Handle summary OOB swap (Run All updates the summary counter)
+            source.addEventListener('summary', function(e) {
+                var tmp = document.createElement('div');
+                tmp.innerHTML = e.data;
+                var oob = tmp.firstElementChild;
+                if (oob && oob.id) {
+                    var existing = document.getElementById(oob.id);
+                    if (existing) existing.innerHTML = oob.innerHTML;
+                }
+            });
+
+            // Close connection on "complete" event
+            source.addEventListener('complete', function() {
+                source.close();
+                setButtonLoading(btn, false);
+            });
+
+            source.onerror = function() {
+                source.close();
+                setButtonLoading(btn, false);
+            };
+        }
 
         // Sidebar search — client-side filter by request name, URL, or method
         function filterSidebar(query) {

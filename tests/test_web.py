@@ -689,7 +689,7 @@ class TestSendButton:
             response = await client.get("/request/0")
         assert response.status_code == 200
         assert "send-btn" in response.text
-        assert "sse-connect" in response.text
+        assert "data-sse-url" in response.text
 
     async def test_send_button_hidden_for_disabled_request(self) -> None:
         """Disabled requests should NOT have a Send button."""
@@ -702,22 +702,22 @@ class TestSendButton:
         assert "send-btn" not in response.text
 
     async def test_send_button_targets_response_content(self) -> None:
-        """Send button should target the response-content div."""
+        """Send button onclick should target the response-content div."""
         app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/request/0")
         assert response.status_code == 200
-        assert 'hx-target="#response-content"' in response.text
+        assert "'#response-content'" in response.text
 
     async def test_send_button_sse_connect_url(self) -> None:
-        """Send button SSE connect URL should include the file key and request index."""
+        """Send button data-sse-url should include the file key and request index."""
         app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/request/1")
         assert response.status_code == 200
-        assert 'sse-connect="/execute/multiple.http/request/1"' in response.text
+        assert 'data-sse-url="/execute/multiple.http/request/1"' in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -986,8 +986,7 @@ class TestRunAllButton:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
         assert response.status_code == 200
-        assert 'sse-connect="/execute/simple.http/all"' in response.text
-        assert 'hx-target="#execution-log-entries"' in response.text
+        assert 'data-sse-url="/execute/simple.http/all"' in response.text
 
 
 # ---------------------------------------------------------------------------
