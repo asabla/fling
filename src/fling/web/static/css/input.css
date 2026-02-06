@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base styles — Catppuccin Mocha */
+body {
+    background-color: #1e1e2e;
+    color: #cdd6f4;
+}
+
+/* Custom scrollbar (WebKit) */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: #1e1e2e; }
+::-webkit-scrollbar-thumb { background: #45475a; border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: #585b70; }
+
+/* Prism.js code block overrides */
+pre[class*="language-"] {
+    margin: 0;
+    border-radius: 0.375rem;
+    font-size: 0.875rem;
+}
+
+/* Active request in sidebar tree */
+.request-item.active {
+    background-color: #313244;
+    border-left-color: #89b4fa;
+}
+
+/* SSE loading animation */
+.sse-loading {
+    animation: pulse 1.5s infinite;
+}
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.5; }
+}
+
+/* Tab styles */
+.tab-btn.active {
+    border-bottom-color: #89b4fa;
+    color: #cdd6f4;
+}
+.tab-btn {
+    border-bottom: 2px solid transparent;
+    color: #6c7086;
+}
+.tab-content { display: none; }
+.tab-content.active { display: block; }

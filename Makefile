@@ -1,4 +1,4 @@
-.PHONY: help test lint fmt typecheck check clean install run tui serve list
+.PHONY: help test lint fmt typecheck check clean install run tui serve list build-css
 
 help: ## Show this help message
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | \
@@ -32,6 +32,23 @@ typecheck: ## Run mypy type checker
 	uv run mypy src/fling
 
 check: lint fmt-check typecheck test ## Run all checks (lint, format check, typecheck, test)
+
+# ---------------------------------------------------------------------------
+# Frontend build targets
+# ---------------------------------------------------------------------------
+
+TAILWIND_VERSION := 3.4.17
+TAILWIND_BIN := .bin/tailwindcss
+TAILWIND_URL := https://github.com/tailwindlabs/tailwindcss/releases/download/v$(TAILWIND_VERSION)/tailwindcss-linux-x64
+
+$(TAILWIND_BIN):
+	@mkdir -p .bin
+	@echo "Downloading Tailwind CSS standalone CLI v$(TAILWIND_VERSION)..."
+	@curl -sL $(TAILWIND_URL) -o $(TAILWIND_BIN)
+	@chmod +x $(TAILWIND_BIN)
+
+build-css: $(TAILWIND_BIN) ## Compile Tailwind CSS from templates
+	$(TAILWIND_BIN) -i src/fling/web/static/css/input.css -o src/fling/web/static/css/app.css --minify
 
 # ---------------------------------------------------------------------------
 # Application targets

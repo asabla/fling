@@ -108,7 +108,7 @@ class TestIndexRoute:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
         assert response.status_code == 200
-        assert "htmx.org" in response.text
+        assert "htmx" in response.text
 
     async def test_index_contains_tailwind(self) -> None:
         app = create_app()
@@ -116,7 +116,7 @@ class TestIndexRoute:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
         assert response.status_code == 200
-        assert "tailwindcss" in response.text
+        assert "app.css" in response.text
 
     async def test_index_dark_mode(self) -> None:
         app = create_app()
@@ -365,7 +365,7 @@ class TestTemplateContent:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
-        assert "prismjs" in response.text
+        assert "prism" in response.text
 
     async def test_sse_extension_included(self) -> None:
         app = create_app()
