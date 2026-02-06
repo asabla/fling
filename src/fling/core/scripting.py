@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _DotDict(dict):
+class _DotDict(dict[str, Any]):
     """Dict subclass that supports attribute access for dot-notation in transpiled JS.
 
     Allows patterns like ``data.status`` when ``data`` is a parsed JSON object.
