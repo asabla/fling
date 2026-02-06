@@ -29,6 +29,12 @@
     padding: 0 1;
 }
 
+/* Environment selector at bottom of sidebar */
+#env-select {
+    width: 1fr;
+    margin: 0 1;
+}
+
 /* Request panel: top half of content */
 #request-panel {
     height: 1fr;

@@ -1,15 +1,22 @@
-"""Tests for the TUI app scaffold, collection tree, and request panel."""
+"""Tests for the TUI app scaffold, collection tree, request panel, and response panel."""
 
 from __future__ import annotations
 
 from pathlib import Path
 
 import pytest
-from textual.widgets import DataTable, Static, TextArea
+from textual.widgets import DataTable, RichLog, Select, Static, TextArea
 
-from fling.tui.app import FlingApp, ResponsePanel
+from fling.core.models import (
+    ExecutionResult,
+    HttpMethod,
+    HttpRequestDefinition,
+    SourceLocation,
+)
+from fling.tui.app import FlingApp
 from fling.tui.widgets.collection_tree import CollectionTree
 from fling.tui.widgets.request_panel import RequestPanel, UrlBar
+from fling.tui.widgets.response_panel import ResponsePanel, StatusBar
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
 MULTIPLE_FILE = str(FIXTURES_DIR / "multiple.http")
@@ -17,15 +24,17 @@ SIMPLE_FILE = str(FIXTURES_DIR / "simple.http")
 ADVANCED_FILE = str(FIXTURES_DIR / "advanced.http")
 HEADERS_BODY_FILE = str(FIXTURES_DIR / "headers_body.http")
 
+_LOC = SourceLocation(file_path="test.http", start_line=1, end_line=1)
+
 
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
-def _make_app(file_path: str | None = None) -> FlingApp:
+def _make_app(file_path: str | None = None, env_name: str | None = None) -> FlingApp:
     """Create a FlingApp instance for testing."""
-    return FlingApp(file_path=file_path)
+    return FlingApp(file_path=file_path, env_name=env_name)
 
 
 def _select_first_request(app: FlingApp) -> None:
@@ -34,6 +43,30 @@ def _select_first_request(app: FlingApp) -> None:
     first_child = tree.root.children[0]
     tree.select_node(first_child)
     tree.action_select_cursor()
+
+
+def _make_result(
+    *,
+    status_code: int = 200,
+    body: str = '{"ok": true}',
+    headers: dict[str, list[str]] | None = None,
+    elapsed_ms: float = 42.0,
+    error: str | None = None,
+) -> ExecutionResult:
+    """Create a test ExecutionResult."""
+    return ExecutionResult(
+        request=HttpRequestDefinition(
+            method=HttpMethod.GET,
+            url="https://api.example.com/test",
+            location=_LOC,
+        ),
+        resolved_url="https://api.example.com/test",
+        status_code=status_code,
+        response_body=body,
+        response_headers=headers or {"content-type": ["application/json"]},
+        elapsed_ms=elapsed_ms,
+        error=error,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -46,28 +79,24 @@ class TestFlingAppLayout:
 
     @pytest.mark.asyncio
     async def test_app_mounts_successfully(self) -> None:
-        """App should mount without errors."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             assert pilot.app.title == "fling"
 
     @pytest.mark.asyncio
     async def test_app_subtitle_shows_filename(self) -> None:
-        """When a file is loaded, subtitle shows the filename."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             assert pilot.app.sub_title == "multiple.http"
 
     @pytest.mark.asyncio
     async def test_app_no_file_subtitle(self) -> None:
-        """When no file is loaded, subtitle stays at default."""
         app = _make_app()
         async with app.run_test() as pilot:
             assert pilot.app.sub_title == "HTTP API Testing"
 
     @pytest.mark.asyncio
     async def test_app_has_sidebar(self) -> None:
-        """App should have a sidebar container."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             sidebar = app.query_one("#sidebar")
@@ -75,7 +104,6 @@ class TestFlingAppLayout:
 
     @pytest.mark.asyncio
     async def test_app_has_content_area(self) -> None:
-        """App should have a content container."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             content = app.query_one("#content")
@@ -83,7 +111,6 @@ class TestFlingAppLayout:
 
     @pytest.mark.asyncio
     async def test_app_has_collection_tree(self) -> None:
-        """App should contain a CollectionTree widget."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -91,7 +118,6 @@ class TestFlingAppLayout:
 
     @pytest.mark.asyncio
     async def test_app_has_request_panel(self) -> None:
-        """App should contain a RequestPanel widget."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             panel = app.query_one("#request-panel", RequestPanel)
@@ -99,11 +125,17 @@ class TestFlingAppLayout:
 
     @pytest.mark.asyncio
     async def test_app_has_response_panel(self) -> None:
-        """App should contain a ResponsePanel widget."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             panel = app.query_one("#response-panel", ResponsePanel)
             assert panel is not None
+
+    @pytest.mark.asyncio
+    async def test_app_has_env_selector(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test():
+            env_select = app.query_one("#env-select", Select)
+            assert env_select is not None
 
 
 # ---------------------------------------------------------------------------
@@ -116,7 +148,6 @@ class TestCollectionTree:
 
     @pytest.mark.asyncio
     async def test_tree_loads_requests(self) -> None:
-        """Tree should show all requests from the .http file."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -124,7 +155,6 @@ class TestCollectionTree:
 
     @pytest.mark.asyncio
     async def test_tree_single_request(self) -> None:
-        """Tree should show one request for a single-request file."""
         app = _make_app(SIMPLE_FILE)
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -132,7 +162,6 @@ class TestCollectionTree:
 
     @pytest.mark.asyncio
     async def test_tree_no_file(self) -> None:
-        """Tree should have zero requests when no file is loaded."""
         app = _make_app()
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -140,7 +169,6 @@ class TestCollectionTree:
 
     @pytest.mark.asyncio
     async def test_tree_root_label_shows_file_path(self) -> None:
-        """Tree root label should show the file path."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -149,7 +177,6 @@ class TestCollectionTree:
 
     @pytest.mark.asyncio
     async def test_tree_root_label_no_file(self) -> None:
-        """Tree root should say 'No file loaded' without a file."""
         app = _make_app()
         async with app.run_test():
             tree = app.query_one("#collection-tree", CollectionTree)
@@ -166,20 +193,17 @@ class TestRequestSelection:
 
     @pytest.mark.asyncio
     async def test_selecting_request_updates_panel(self) -> None:
-        """Clicking a request in the tree should update RequestPanel."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
             await pilot.pause()
 
-            # The URL bar should show the request method
             url_bar = app.query_one("#url-bar", UrlBar)
             rendered = str(url_bar.render())
             assert "GET" in rendered
 
     @pytest.mark.asyncio
     async def test_selected_request_stored_on_app(self) -> None:
-        """After selection, _selected_request should be set."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -199,7 +223,6 @@ class TestKeyBindings:
 
     @pytest.mark.asyncio
     async def test_quit_binding_registered(self) -> None:
-        """The 'q' quit binding should be registered."""
         app = _make_app()
         async with app.run_test():
             binding_keys = [b.key for b in app.BINDINGS]
@@ -207,7 +230,6 @@ class TestKeyBindings:
 
     @pytest.mark.asyncio
     async def test_run_binding_registered(self) -> None:
-        """The ctrl+r run binding should be registered."""
         app = _make_app()
         async with app.run_test():
             binding_keys = [b.key for b in app.BINDINGS]
@@ -215,7 +237,6 @@ class TestKeyBindings:
 
     @pytest.mark.asyncio
     async def test_reload_binding_registered(self) -> None:
-        """The 'r' reload binding should be registered."""
         app = _make_app()
         async with app.run_test():
             binding_keys = [b.key for b in app.BINDINGS]
@@ -223,7 +244,6 @@ class TestKeyBindings:
 
     @pytest.mark.asyncio
     async def test_env_binding_registered(self) -> None:
-        """The ctrl+e env binding should be registered."""
         app = _make_app()
         async with app.run_test():
             binding_keys = [b.key for b in app.BINDINGS]
@@ -231,7 +251,6 @@ class TestKeyBindings:
 
     @pytest.mark.asyncio
     async def test_next_binding_registered(self) -> None:
-        """The ctrl+n next binding should be registered."""
         app = _make_app()
         async with app.run_test():
             binding_keys = [b.key for b in app.BINDINGS]
@@ -248,29 +267,23 @@ class TestReload:
 
     @pytest.mark.asyncio
     async def test_reload_repopulates_tree(self) -> None:
-        """Reload should rebuild the collection tree."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             tree = app.query_one("#collection-tree", CollectionTree)
             assert tree.request_count == 3
 
-            # Trigger reload
             await pilot.press("r")
             await pilot.pause()
-
             assert tree.request_count == 3
 
     @pytest.mark.asyncio
     async def test_reload_clears_selection(self) -> None:
-        """Reload should clear the selected request."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
-            # Select a request first
             _select_first_request(app)
             await pilot.pause()
             assert app._selected_request is not None
 
-            # Reload
             await pilot.press("r")
             await pilot.pause()
             assert app._selected_request is None
@@ -286,7 +299,6 @@ class TestRequestPanelUrlBar:
 
     @pytest.mark.asyncio
     async def test_url_bar_shows_method_and_url(self) -> None:
-        """URL bar should display the method and URL."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -299,7 +311,6 @@ class TestRequestPanelUrlBar:
 
     @pytest.mark.asyncio
     async def test_url_bar_empty_state(self) -> None:
-        """URL bar should show placeholder when no request selected."""
         app = _make_app()
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -318,18 +329,16 @@ class TestRequestPanelHeaders:
 
     @pytest.mark.asyncio
     async def test_headers_table_populated(self) -> None:
-        """Headers DataTable should contain the request headers."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
             await pilot.pause()
 
             table = app.query_one("#headers-table", DataTable)
-            assert table.row_count == 3  # Content-Type, Accept, Authorization
+            assert table.row_count == 3
 
     @pytest.mark.asyncio
     async def test_headers_table_empty_for_no_headers(self) -> None:
-        """Headers table should be empty for requests without headers."""
         app = _make_app(SIMPLE_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -340,7 +349,6 @@ class TestRequestPanelHeaders:
 
     @pytest.mark.asyncio
     async def test_headers_table_has_columns(self) -> None:
-        """Headers table should have Header and Value columns."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             await pilot.pause()
@@ -361,7 +369,6 @@ class TestRequestPanelBody:
 
     @pytest.mark.asyncio
     async def test_body_text_populated(self) -> None:
-        """Body TextArea should contain the request body content."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -373,7 +380,6 @@ class TestRequestPanelBody:
 
     @pytest.mark.asyncio
     async def test_body_text_empty_for_get(self) -> None:
-        """Body TextArea should be empty for GET requests."""
         app = _make_app(SIMPLE_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -384,7 +390,6 @@ class TestRequestPanelBody:
 
     @pytest.mark.asyncio
     async def test_body_text_json_language(self) -> None:
-        """Body TextArea should detect JSON content type."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -395,7 +400,6 @@ class TestRequestPanelBody:
 
     @pytest.mark.asyncio
     async def test_body_read_only(self) -> None:
-        """Body TextArea should be read-only."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -415,7 +419,6 @@ class TestRequestPanelInfo:
 
     @pytest.mark.asyncio
     async def test_info_shows_name(self) -> None:
-        """Info tab should display the request name."""
         app = _make_app(ADVANCED_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -427,7 +430,6 @@ class TestRequestPanelInfo:
 
     @pytest.mark.asyncio
     async def test_info_shows_timeout(self) -> None:
-        """Info tab should display timeout flag."""
         app = _make_app(ADVANCED_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -439,7 +441,6 @@ class TestRequestPanelInfo:
 
     @pytest.mark.asyncio
     async def test_info_shows_note(self) -> None:
-        """Info tab should display the request note."""
         app = _make_app(ADVANCED_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -451,7 +452,6 @@ class TestRequestPanelInfo:
 
     @pytest.mark.asyncio
     async def test_info_empty_metadata(self) -> None:
-        """Info tab should show placeholder for requests without metadata."""
         app = _make_app(SIMPLE_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -463,7 +463,6 @@ class TestRequestPanelInfo:
 
     @pytest.mark.asyncio
     async def test_info_shows_response_handler(self) -> None:
-        """Info tab should note presence of response handler."""
         app = _make_app(ADVANCED_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -484,14 +483,11 @@ class TestRequestPanelClearUpdate:
 
     @pytest.mark.asyncio
     async def test_clear_resets_url_bar(self) -> None:
-        """Clearing the panel should reset the URL bar."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
-            # Select a request
             _select_first_request(app)
             await pilot.pause()
 
-            # Clear
             panel = app.query_one("#request-panel", RequestPanel)
             panel.clear_request()
             await pilot.pause()
@@ -502,7 +498,6 @@ class TestRequestPanelClearUpdate:
 
     @pytest.mark.asyncio
     async def test_clear_empties_headers(self) -> None:
-        """Clearing the panel should empty the headers table."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -517,7 +512,6 @@ class TestRequestPanelClearUpdate:
 
     @pytest.mark.asyncio
     async def test_clear_empties_body(self) -> None:
-        """Clearing the panel should empty the body text."""
         app = _make_app(HEADERS_BODY_FILE)
         async with app.run_test() as pilot:
             _select_first_request(app)
@@ -532,12 +526,10 @@ class TestRequestPanelClearUpdate:
 
     @pytest.mark.asyncio
     async def test_switching_requests_updates_panel(self) -> None:
-        """Selecting a different request should update all panel content."""
         app = _make_app(MULTIPLE_FILE)
         async with app.run_test() as pilot:
             tree = app.query_one("#collection-tree", CollectionTree)
 
-            # Select first (GET)
             first = tree.root.children[0]
             tree.select_node(first)
             tree.action_select_cursor()
@@ -545,7 +537,6 @@ class TestRequestPanelClearUpdate:
             assert app._selected_request is not None
             assert app._selected_request.method.value == "GET"
 
-            # Select second (POST)
             second = tree.root.children[1]
             tree.select_node(second)
             tree.action_select_cursor()
@@ -558,6 +549,223 @@ class TestRequestPanelClearUpdate:
 
 
 # ---------------------------------------------------------------------------
+# ResponsePanel — status bar
+# ---------------------------------------------------------------------------
+
+
+class TestResponsePanelStatusBar:
+    """Tests for the StatusBar in the ResponsePanel."""
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_status_code(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(status_code=200)
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            text = str(status_bar.render())
+            assert "200" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_elapsed_time(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(elapsed_ms=150.0)
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            text = str(status_bar.render())
+            assert "150ms" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_shows_error(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(error="Connection refused")
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            text = str(status_bar.render())
+            assert "ERROR" in text
+            assert "Connection refused" in text
+
+    @pytest.mark.asyncio
+    async def test_status_bar_loading_state(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            response_panel.show_loading()
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            text = str(status_bar.render())
+            assert "Running" in text
+
+
+# ---------------------------------------------------------------------------
+# ResponsePanel — body
+# ---------------------------------------------------------------------------
+
+
+class TestResponsePanelBody:
+    """Tests for the response body RichLog."""
+
+    @pytest.mark.asyncio
+    async def test_body_shows_json_response(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(body='{"name": "test"}')
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            body_log = app.query_one("#response-body", RichLog)
+            assert len(body_log.lines) > 0
+
+    @pytest.mark.asyncio
+    async def test_body_shows_empty_for_empty_response(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(body="", headers={})
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            body_log = app.query_one("#response-body", RichLog)
+            assert len(body_log.lines) > 0  # Shows "Empty response body"
+
+    @pytest.mark.asyncio
+    async def test_body_shows_error_message(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(error="Timeout", body="")
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            body_log = app.query_one("#response-body", RichLog)
+            assert len(body_log.lines) > 0
+
+
+# ---------------------------------------------------------------------------
+# ResponsePanel — headers
+# ---------------------------------------------------------------------------
+
+
+class TestResponsePanelHeaders:
+    """Tests for the response headers DataTable."""
+
+    @pytest.mark.asyncio
+    async def test_response_headers_populated(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(
+                headers={
+                    "content-type": ["application/json"],
+                    "x-request-id": ["abc-123"],
+                },
+            )
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            table = app.query_one("#response-headers-table", DataTable)
+            assert table.row_count == 2
+
+    @pytest.mark.asyncio
+    async def test_response_headers_empty_initially(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            table = app.query_one("#response-headers-table", DataTable)
+            assert table.row_count == 0
+
+    @pytest.mark.asyncio
+    async def test_response_headers_multi_value(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            result = _make_result(
+                headers={"set-cookie": ["a=1", "b=2"]},
+            )
+            response_panel.show_result(result)
+            await pilot.pause()
+
+            table = app.query_one("#response-headers-table", DataTable)
+            assert table.row_count == 2
+
+
+# ---------------------------------------------------------------------------
+# ResponsePanel — clear
+# ---------------------------------------------------------------------------
+
+
+class TestResponsePanelClear:
+    """Tests for clearing the response panel."""
+
+    @pytest.mark.asyncio
+    async def test_clear_resets_status(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            response_panel.show_result(_make_result())
+            await pilot.pause()
+
+            response_panel.clear_result()
+            await pilot.pause()
+
+            status_bar = app.query_one("#status-bar", StatusBar)
+            text = str(status_bar.render())
+            assert "Run a request" in text
+
+    @pytest.mark.asyncio
+    async def test_clear_empties_headers_table(self) -> None:
+        app = _make_app(MULTIPLE_FILE)
+        async with app.run_test() as pilot:
+            await pilot.pause()
+
+            response_panel = app.query_one("#response-panel", ResponsePanel)
+            response_panel.show_result(
+                _make_result(headers={"x-foo": ["bar"]}),
+            )
+            await pilot.pause()
+
+            response_panel.clear_result()
+            await pilot.pause()
+
+            table = app.query_one("#response-headers-table", DataTable)
+            assert table.row_count == 0
+
+
+# ---------------------------------------------------------------------------
 # CLI tui command
 # ---------------------------------------------------------------------------
 
@@ -566,7 +774,6 @@ class TestTuiCliCommand:
     """Tests for the `fling tui` CLI command."""
 
     def test_tui_help(self) -> None:
-        """The tui command should show help text."""
         from click.testing import CliRunner
 
         from fling.cli import main
@@ -577,7 +784,6 @@ class TestTuiCliCommand:
         assert "Launch the interactive TUI" in result.output
 
     def test_tui_listed_in_main_help(self) -> None:
-        """The tui command should appear in the main help."""
         from click.testing import CliRunner
 
         from fling.cli import main
