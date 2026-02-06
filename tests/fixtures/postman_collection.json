@@ -1,0 +1,406 @@
+{
+  "info": {
+    "name": "Fling Test API",
+    "description": "A comprehensive test collection for fling's Postman parser",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{auth_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://api.example.com",
+      "description": "Base URL for the API"
+    },
+    {
+      "key": "auth_token",
+      "value": "default-token-123",
+      "description": "Authentication token"
+    },
+    {
+      "key": "api_version",
+      "value": "v2"
+    },
+    {
+      "key": "disabled_var",
+      "value": "should-not-use",
+      "disabled": true
+    }
+  ],
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "console.log('Collection pre-request script');",
+          "pm.environment.set('timestamp', Date.now());"
+        ]
+      }
+    },
+    {
+      "listen": "test",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "pm.test('Response time is less than 500ms', function () {",
+          "    pm.expect(pm.response.responseTime).to.be.below(500);",
+          "});"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Simple GET",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/{{api_version}}/status",
+        "header": [],
+        "description": "A simple GET request with a string URL"
+      }
+    },
+    {
+      "name": "Auth",
+      "description": "Authentication endpoints",
+      "auth": {
+        "type": "noauth"
+      },
+      "item": [
+        {
+          "name": "Login",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/auth/login",
+              "protocol": "https",
+              "host": ["{{base_url}}"],
+              "path": ["auth", "login"]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "X-Debug",
+                "value": "true",
+                "disabled": true,
+                "description": "Debug header (disabled)"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"admin\",\n  \"password\": \"secret\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Login to get an auth token"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var jsonData = pm.response.json();",
+                  "pm.environment.set('auth_token', jsonData.token);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/auth/register",
+              "protocol": "https",
+              "host": ["api", "example", "com"],
+              "path": ["auth", "register"]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/x-www-form-urlencoded"
+              }
+            ],
+            "body": {
+              "mode": "urlencoded",
+              "urlencoded": [
+                {
+                  "key": "username",
+                  "value": "newuser",
+                  "type": "text"
+                },
+                {
+                  "key": "password",
+                  "value": "newpass",
+                  "type": "text"
+                },
+                {
+                  "key": "role",
+                  "value": "admin",
+                  "type": "text",
+                  "disabled": true
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Users",
+      "description": "User management endpoints",
+      "auth": {
+        "type": "basic",
+        "basic": [
+          {
+            "key": "username",
+            "value": "admin",
+            "type": "string"
+          },
+          {
+            "key": "password",
+            "value": "secret",
+            "type": "string"
+          }
+        ]
+      },
+      "item": [
+        {
+          "name": "List Users",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/{{api_version}}/users?page=1&limit=10&sort=name",
+              "protocol": "https",
+              "host": ["api", "example", "com"],
+              "path": ["{{api_version}}", "users"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "limit",
+                  "value": "10"
+                },
+                {
+                  "key": "sort",
+                  "value": "name"
+                },
+                {
+                  "key": "debug",
+                  "value": "true",
+                  "disabled": true
+                }
+              ]
+            },
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ]
+          }
+        },
+        {
+          "name": "Get User",
+          "request": {
+            "method": "GET",
+            "url": {
+              "raw": "{{base_url}}/{{api_version}}/users/123",
+              "host": ["api", "example", "com"],
+              "path": ["{{api_version}}", "users", "123"]
+            }
+          }
+        },
+        {
+          "name": "Admin",
+          "description": "Admin-only user operations",
+          "item": [
+            {
+              "name": "Delete User",
+              "request": {
+                "method": "DELETE",
+                "url": {
+                  "raw": "{{base_url}}/{{api_version}}/users/123",
+                  "host": ["api", "example", "com"],
+                  "path": ["{{api_version}}", "users", "123"]
+                },
+                "auth": {
+                  "type": "apikey",
+                  "apikey": [
+                    {
+                      "key": "key",
+                      "value": "X-Admin-Key",
+                      "type": "string"
+                    },
+                    {
+                      "key": "value",
+                      "value": "super-secret-key",
+                      "type": "string"
+                    },
+                    {
+                      "key": "in",
+                      "value": "header",
+                      "type": "string"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Create User",
+              "request": {
+                "method": "POST",
+                "url": {
+                  "raw": "{{base_url}}/{{api_version}}/users",
+                  "host": ["api", "example", "com"],
+                  "path": ["{{api_version}}", "users"]
+                },
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"New User\",\n  \"email\": \"new@example.com\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "GraphQL",
+      "description": "GraphQL queries",
+      "item": [
+        {
+          "name": "Get User Query",
+          "request": {
+            "method": "POST",
+            "url": {
+              "raw": "{{base_url}}/graphql",
+              "host": ["api", "example", "com"],
+              "path": ["graphql"]
+            },
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "graphql",
+              "graphql": {
+                "query": "query GetUser($id: ID!) {\n  user(id: $id) {\n    id\n    name\n    email\n  }\n}",
+                "variables": "{\"id\": \"123\"}"
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "File Upload",
+      "request": {
+        "method": "POST",
+        "url": {
+          "raw": "{{base_url}}/upload",
+          "host": ["api", "example", "com"],
+          "path": ["upload"]
+        },
+        "body": {
+          "mode": "formdata",
+          "formdata": [
+            {
+              "key": "file",
+              "type": "file",
+              "src": "/path/to/file.txt"
+            },
+            {
+              "key": "description",
+              "value": "My uploaded file",
+              "type": "text"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Disabled Request",
+      "disabled": true,
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/deprecated"
+      }
+    },
+    {
+      "name": "Request with URL string shorthand",
+      "request": "{{base_url}}/quick"
+    },
+    {
+      "name": "Request with API Key auth",
+      "request": {
+        "method": "GET",
+        "url": "{{base_url}}/protected",
+        "auth": {
+          "type": "apikey",
+          "apikey": [
+            {
+              "key": "key",
+              "value": "X-API-Key",
+              "type": "string"
+            },
+            {
+              "key": "value",
+              "value": "my-api-key-123",
+              "type": "string"
+            },
+            {
+              "key": "in",
+              "value": "header",
+              "type": "string"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "Request with port URL",
+      "request": {
+        "method": "GET",
+        "url": {
+          "raw": "http://localhost:8080/api/health",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8080",
+          "path": ["api", "health"]
+        }
+      }
+    }
+  ]
+}
