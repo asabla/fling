@@ -2,6 +2,8 @@
 
 Handles running individual HTTP requests with SSE streaming for real-time
 progress updates, response headers, body, and timing information.
+Also provides a collection runner that executes all requests with a
+streaming execution log.
 """
 
 from __future__ import annotations
@@ -9,6 +11,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -163,6 +166,142 @@ def _build_response_html(result: ExecutionResult) -> str:
     )
 
     return f'<div class="p-4">{status_html}{tabs_html}{body_html}{headers_html}</div></div>'
+
+
+def _log_entry_html(
+    request_def: HttpRequestDefinition,
+    result: ExecutionResult,
+    index: int,
+) -> str:
+    """Build HTML for a single execution log entry."""
+    name = request_def.metadata.name or request_def.url
+    method = request_def.method.value
+    elapsed = _format_elapsed(result.elapsed_ms)
+    timestamp = time.strftime("%H:%M:%S")
+
+    if result.error:
+        status_badge = '<span class="text-status-error text-xs font-bold">ERR</span>'
+    else:
+        status_class = _status_class(result.status_code)
+        status_badge = f'<span class="{status_class} text-xs font-bold">{result.status_code}</span>'
+
+    return (
+        f'<div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-light text-sm'
+        f' border-l-2 border-transparent"'
+        f' data-log-index="{index}">'
+        f'<span class="text-accent-dim text-xs font-mono shrink-0">{timestamp}</span>'
+        f'<span class="text-method-{method.lower()} font-mono text-xs font-bold w-14 shrink-0">{method}</span>'
+        f'<span class="truncate flex-1">{html.escape(name)}</span>'
+        f"{status_badge}"
+        f'<span class="text-accent-dim text-xs shrink-0">{elapsed}</span>'
+        f"</div>"
+    )
+
+
+def _summary_html(
+    total: int,
+    completed: int,
+    passed: int,
+    failed: int,
+    total_ms: float,
+) -> str:
+    """Build HTML for the execution summary counter."""
+    elapsed = _format_elapsed(total_ms)
+    parts = [f"{completed}/{total}"]
+    if passed:
+        parts.append(f'<span class="text-status-success">{passed} ok</span>')
+    if failed:
+        parts.append(f'<span class="text-status-error">{failed} fail</span>')
+    parts.append(f'<span class="text-accent-dim">{elapsed}</span>')
+    return " &middot; ".join(parts)
+
+
+def _log_start_html() -> str:
+    """Build HTML to clear the log and show a starting message."""
+    return (
+        '<div class="flex items-center gap-2 px-2 py-1 text-sm text-accent-dim">'
+        f'<span class="text-xs font-mono">{time.strftime("%H:%M:%S")}</span>'
+        '<span class="sse-loading">Running all requests...</span>'
+        "</div>"
+    )
+
+
+@router.get("/all")
+async def execute_all(request: Request) -> EventSourceResponse:
+    """Execute all requests and stream results as an execution log via SSE.
+
+    Streams the following named events:
+    - ``log``: Individual log entry HTML for each completed request
+    - ``summary``: OOB swap for the execution summary counter
+    - ``complete``: Final signal indicating execution is done
+
+    Args:
+        request: The FastAPI request object.
+
+    Returns:
+        SSE event stream.
+    """
+    http_file = request.app.state.http_file
+    file_path = request.app.state.file_path
+    env_name = request.app.state.env_name
+
+    async def event_generator() -> AsyncGenerator[dict[str, str], None]:
+        if not http_file or not http_file.requests:
+            yield {
+                "event": "log",
+                "data": ('<div class="px-2 py-1 text-sm text-status-error">No requests to execute.</div>'),
+            }
+            yield {"event": "complete", "data": "done"}
+            return
+
+        total = len([r for r in http_file.requests if not r.metadata.disabled])
+
+        # Clear log and show start message
+        yield {
+            "event": "log",
+            "data": _log_start_html(),
+        }
+
+        # Load environment
+        env_config = None
+        if file_path:
+            env_config = load_environment(Path(file_path).parent)
+
+        runner = HttpRunner(env_file=env_config, env_name=env_name)
+
+        completed = 0
+        passed = 0
+        failed = 0
+        total_ms = 0.0
+
+        async for req_def, result in runner.run_all(http_file):
+            completed += 1
+            total_ms += result.elapsed_ms
+
+            if result.error or result.status_code >= 400:
+                failed += 1
+            else:
+                passed += 1
+
+            # Stream log entry
+            yield {
+                "event": "log",
+                "data": _log_entry_html(req_def, result, completed - 1),
+            }
+
+            # Stream updated summary via OOB swap
+            yield {
+                "event": "summary",
+                "data": (
+                    f'<div id="execution-summary" hx-swap-oob="innerHTML:#execution-summary">'
+                    f"{_summary_html(total, completed, passed, failed, total_ms)}"
+                    f"</div>"
+                ),
+            }
+
+        yield {"event": "complete", "data": "done"}
+
+    return EventSourceResponse(event_generator())
 
 
 @router.get("/{index}")

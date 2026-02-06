@@ -32,7 +32,21 @@
 <!-- Sidebar: collection tree -->
 <aside id="sidebar" class="w-72 min-w-[14rem] max-w-[24rem] border-r border-surface-lighter overflow-y-auto shrink-0">
     <div class="p-3">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-accent-dim mb-2">Requests</h2>
+        <div class="flex items-center justify-between mb-2">
+            <h2 class="text-xs font-semibold uppercase tracking-wider text-accent-dim">Requests</h2>
+            {% if requests %}
+            <button
+                id="run-all-btn"
+                class="bg-method-get/20 text-method-get font-bold text-xs px-3 py-1 rounded hover:bg-method-get/30 transition-colors"
+                hx-ext="sse"
+                sse-connect="/execute/all"
+                sse-swap="log"
+                hx-target="#execution-log-entries"
+                hx-swap="beforeend scroll:#execution-log-entries:bottom"
+                sse-close="complete"
+            >Run All</button>
+            {% endif %}
+        </div>
         {% include "partials/collection_tree.html" %}
     </div>
 </aside>
@@ -45,8 +59,13 @@
     </div>
 
     <!-- Response panel -->
-    <div id="response-panel" class="flex-1 overflow-y-auto">
+    <div id="response-panel" class="flex-1 overflow-y-auto border-b border-surface-lighter">
         {% include "partials/response_panel.html" %}
+    </div>
+
+    <!-- Execution log panel -->
+    <div id="execution-log-panel" class="h-48 min-h-[8rem] max-h-[20rem] overflow-hidden shrink-0">
+        {% include "partials/execution_log.html" %}
     </div>
 </div>
 {% endblock %}

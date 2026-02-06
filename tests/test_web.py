@@ -22,8 +22,11 @@ from fling.web.routes.execution import (
     _format_body,
     _format_elapsed,
     _format_size,
+    _log_entry_html,
+    _log_start_html,
     _progress_html,
     _status_class,
+    _summary_html,
 )
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -844,3 +847,313 @@ class TestExecutionRoute:
 
         assert "Connection timed out" in body
         assert "Error" in body
+
+
+# ---------------------------------------------------------------------------
+# Execution log helpers
+# ---------------------------------------------------------------------------
+
+
+class TestLogEntryHtml:
+    """Tests for _log_entry_html helper."""
+
+    def test_success_entry(self) -> None:
+        req = _make_request(method=HttpMethod.GET, url="https://example.com/users")
+        result = _make_result(status_code=200, elapsed_ms=50.0)
+        html_out = _log_entry_html(req, result, 0)
+        assert "200" in html_out
+        assert "50ms" in html_out
+        assert "example.com/users" in html_out
+        assert "GET" in html_out
+
+    def test_error_entry(self) -> None:
+        req = _make_request()
+        result = _make_result(error="Timeout", status_code=0)
+        html_out = _log_entry_html(req, result, 1)
+        assert "ERR" in html_out
+        assert "text-status-error" in html_out
+
+    def test_named_request_uses_name(self) -> None:
+        from fling.core.models import RequestMetadata
+
+        req = _make_request(metadata=RequestMetadata(name="getUsers"))
+        result = _make_result()
+        html_out = _log_entry_html(req, result, 0)
+        assert "getUsers" in html_out
+
+    def test_data_log_index(self) -> None:
+        req = _make_request()
+        result = _make_result()
+        html_out = _log_entry_html(req, result, 5)
+        assert 'data-log-index="5"' in html_out
+
+    def test_4xx_status(self) -> None:
+        req = _make_request()
+        result = _make_result(status_code=404)
+        html_out = _log_entry_html(req, result, 0)
+        assert "404" in html_out
+        assert "text-status-error" in html_out
+
+    def test_3xx_status(self) -> None:
+        req = _make_request()
+        result = _make_result(status_code=302)
+        html_out = _log_entry_html(req, result, 0)
+        assert "302" in html_out
+        assert "text-status-redirect" in html_out
+
+
+class TestSummaryHtml:
+    """Tests for _summary_html helper."""
+
+    def test_basic_summary(self) -> None:
+        result = _summary_html(total=3, completed=2, passed=2, failed=0, total_ms=150.0)
+        assert "2/3" in result
+        assert "2 ok" in result
+        assert "150ms" in result
+
+    def test_with_failures(self) -> None:
+        result = _summary_html(total=5, completed=5, passed=3, failed=2, total_ms=2500.0)
+        assert "5/5" in result
+        assert "3 ok" in result
+        assert "2 fail" in result
+        assert "2.50s" in result
+
+    def test_no_passed(self) -> None:
+        result = _summary_html(total=1, completed=1, passed=0, failed=1, total_ms=100.0)
+        assert "1/1" in result
+        assert "ok" not in result
+        assert "1 fail" in result
+
+    def test_no_failed(self) -> None:
+        result = _summary_html(total=2, completed=2, passed=2, failed=0, total_ms=200.0)
+        assert "2/2" in result
+        assert "2 ok" in result
+        assert "fail" not in result
+
+
+class TestLogStartHtml:
+    """Tests for _log_start_html helper."""
+
+    def test_contains_loading(self) -> None:
+        result = _log_start_html()
+        assert "sse-loading" in result
+        assert "Running all requests" in result
+
+    def test_contains_timestamp(self) -> None:
+        result = _log_start_html()
+        # Should have HH:MM:SS format
+        assert ":" in result
+
+
+# ---------------------------------------------------------------------------
+# Run All button
+# ---------------------------------------------------------------------------
+
+
+class TestRunAllButton:
+    """Tests for Run All button rendering."""
+
+    async def test_run_all_button_shown_with_requests(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert "run-all-btn" in response.text
+        assert "Run All" in response.text
+
+    async def test_run_all_button_hidden_without_requests(self) -> None:
+        app = create_app()
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert "run-all-btn" not in response.text
+
+    async def test_run_all_button_targets_log(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert 'sse-connect="/execute/all"' in response.text
+        assert 'hx-target="#execution-log-entries"' in response.text
+
+
+# ---------------------------------------------------------------------------
+# Execution log panel
+# ---------------------------------------------------------------------------
+
+
+class TestExecutionLogPanel:
+    """Tests for execution log panel rendering."""
+
+    async def test_execution_log_shown_in_layout(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert "execution-log" in response.text
+        assert "Execution Log" in response.text
+
+    async def test_execution_log_placeholder(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert "Run All" in response.text
+
+    async def test_execution_summary_container(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/")
+        assert response.status_code == 200
+        assert "execution-summary" in response.text
+
+
+# ---------------------------------------------------------------------------
+# Execute All SSE route
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteAllRoute:
+    """Tests for the /execute/all SSE streaming route."""
+
+    async def test_execute_all_returns_event_stream(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/all") as response,
+        ):
+            assert response.status_code == 200
+            assert "text/event-stream" in response.headers.get("content-type", "")
+
+    async def test_execute_all_no_file_returns_error(self) -> None:
+        app = create_app()
+        transport = ASGITransport(app=app)
+        async with (
+            AsyncClient(transport=transport, base_url="http://test") as client,
+            client.stream("GET", "/execute/all") as response,
+        ):
+            body = (await response.aread()).decode()
+        assert "No requests to execute" in body
+
+    async def test_execute_all_streams_log_entries(self) -> None:
+        results = [
+            _make_result(status_code=200, elapsed_ms=50.0),
+            _make_result(status_code=201, elapsed_ms=30.0),
+            _make_result(status_code=404, elapsed_ms=10.0, error=None),
+        ]
+        call_index = 0
+
+        async def mock_run_all(http_file):
+            nonlocal call_index
+            for i, req in enumerate(http_file.requests):
+                if not req.metadata.disabled:
+                    yield (req, results[min(i, len(results) - 1)])
+                    call_index += 1
+
+        app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/all") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        # Should have log entries
+        assert "event: log" in body
+        assert "Running all requests" in body
+        # Should have summary updates
+        assert "event: summary" in body
+        assert "execution-summary" in body
+        # Should have complete event
+        assert "event: complete" in body
+
+    async def test_execute_all_summary_updates_incrementally(self) -> None:
+        mock_result = _make_result(status_code=200, elapsed_ms=100.0)
+
+        async def mock_run_all(http_file):
+            yield (http_file.requests[0], mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/all") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        # Summary should show 1/1 and 1 ok
+        assert "1/1" in body
+        assert "1 ok" in body
+
+    async def test_execute_all_tracks_failures(self) -> None:
+        mock_result = _make_result(error="Connection refused", status_code=0)
+
+        async def mock_run_all(http_file):
+            yield (http_file.requests[0], mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/all") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        assert "1 fail" in body
+        assert "ERR" in body
+
+    async def test_execute_all_log_entry_has_method(self) -> None:
+        mock_result = _make_result(status_code=200, elapsed_ms=42.0)
+
+        async def mock_run_all(http_file):
+            yield (http_file.requests[0], mock_result)
+
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+
+        with patch(
+            "fling.web.routes.execution.HttpRunner",
+        ) as mock_runner_cls:
+            mock_runner = AsyncMock()
+            mock_runner.run_all = lambda f: mock_run_all(f)
+            mock_runner_cls.return_value = mock_runner
+
+            async with (
+                AsyncClient(transport=transport, base_url="http://test") as client,
+                client.stream("GET", "/execute/all") as response,
+            ):
+                body = (await response.aread()).decode()
+
+        assert "GET" in body
+        assert "42ms" in body
