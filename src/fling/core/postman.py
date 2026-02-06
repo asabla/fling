@@ -464,3 +464,327 @@ def parse_postman_collection(path: str | Path) -> PostmanCollection:
     resolve_auth_inheritance(collection)
 
     return collection
+
+
+# ---------------------------------------------------------------------------
+# Postman-to-.http translator
+# ---------------------------------------------------------------------------
+
+
+def _auth_to_header(auth: PostmanAuth) -> tuple[str, str] | None:
+    """Convert a PostmanAuth into an Authorization header key-value pair.
+
+    Returns None for noauth or unsupported auth types.
+    """
+    if auth.type == "bearer":
+        token = auth.get_param("token") or ""
+        return ("Authorization", f"Bearer {token}")
+    if auth.type == "basic":
+        import base64
+
+        username = auth.get_param("username") or ""
+        password = auth.get_param("password") or ""
+        encoded = base64.b64encode(f"{username}:{password}".encode()).decode()
+        return ("Authorization", f"Basic {encoded}")
+    if auth.type == "apikey":
+        key = auth.get_param("key") or "X-API-Key"
+        value = auth.get_param("value") or ""
+        location = auth.get_param("in") or "header"
+        if location == "header":
+            return (key, value)
+        # Query param API keys are handled in the URL, not as a header
+        return None
+    if auth.type == "noauth":
+        return None
+    # Unsupported auth types — emit a comment-style hint
+    return None
+
+
+def _convert_body(body: PostmanBody) -> tuple[str, str | None]:
+    """Convert a PostmanBody to a body string and optional Content-Type.
+
+    Returns:
+        (body_text, content_type_or_none)
+    """
+    if body.mode == "raw":
+        ct = None
+        if body.raw_language == "json":
+            ct = "application/json"
+        elif body.raw_language == "xml":
+            ct = "application/xml"
+        elif body.raw_language == "text":
+            ct = "text/plain"
+        return (body.raw, ct)
+
+    if body.mode == "urlencoded":
+        active = [item for item in body.urlencoded if not item.get("disabled", False)]
+        pairs = [f"{item.get('key', '')}={item.get('value', '')}" for item in active]
+        return ("&".join(pairs), "application/x-www-form-urlencoded")
+
+    if body.mode == "formdata":
+        # Multipart form data: list key=value pairs, note file refs
+        lines: list[str] = []
+        for item in body.formdata:
+            if item.get("disabled", False):
+                continue
+            if item.get("type") == "file":
+                lines.append(f"# @file {item.get('key', '')}: {item.get('src', '')}")
+            else:
+                lines.append(f"{item.get('key', '')}={item.get('value', '')}")
+        return ("\n".join(lines), "multipart/form-data")
+
+    if body.mode == "graphql":
+        # Convert GraphQL to a JSON POST body
+        gql_body = {"query": body.graphql.get("query", "")}
+        variables_str = body.graphql.get("variables", "")
+        if variables_str:
+            try:
+                gql_body["variables"] = json.loads(variables_str)
+            except (json.JSONDecodeError, ValueError):
+                gql_body["variables"] = variables_str  # type: ignore[assignment]
+        return (json.dumps(gql_body, indent=2), "application/json")
+
+    return ("", None)
+
+
+def _events_to_comments(events: list[PostmanEvent]) -> list[str]:
+    """Convert Postman events to comment lines for .http output."""
+    lines: list[str] = []
+    for event in events:
+        if not event.script_exec:
+            continue
+        label = "Pre-request Script" if event.listen == "prerequest" else "Test Script"
+        lines.append(f"# [{label}]")
+        lines.append("# TODO: Convert to response handler")
+        for script_line in event.script_exec:
+            lines.append(f"#   {script_line}")
+    return lines
+
+
+def _convert_request(
+    req: PostmanRequest,
+    *,
+    include_disabled_as_comments: bool = True,
+) -> str:
+    """Convert a single PostmanRequest to .http format.
+
+    Returns the .http text block for this request (including ### separator).
+    """
+    lines: list[str] = []
+
+    # Name
+    name = req.name or "Unnamed Request"
+    lines.append(f"### {name}")
+
+    # Description as comments
+    if req.description:
+        for desc_line in req.description.splitlines():
+            lines.append(f"# {desc_line}")
+
+    # Disabled marker
+    if req.disabled:
+        lines.append("# @disabled")
+
+    # Events (pre-request/test scripts)
+    event_comments = _events_to_comments(req.events)
+    if event_comments:
+        lines.extend(event_comments)
+
+    # URL — prefer raw, fall back to structured
+    url = req.url.raw or req.url.to_url_string()
+    method = req.method or "GET"
+    lines.append(f"{method} {url}")
+
+    # Auth header from effective auth
+    auth_header = None
+    if req.effective_auth:
+        auth_header = _auth_to_header(req.effective_auth)
+        if auth_header:
+            lines.append(f"{auth_header[0]}: {auth_header[1]}")
+
+    # Determine if we need an explicit Content-Type from the body
+    body_text = ""
+    body_ct: str | None = None
+    if req.body:
+        body_text, body_ct = _convert_body(req.body)
+
+    # Headers
+    has_ct = False
+    for header in req.headers:
+        if header.disabled:
+            if include_disabled_as_comments:
+                lines.append(f"# {header.key}: {header.value}")
+            continue
+        if header.key.lower() == "content-type":
+            has_ct = True
+        lines.append(f"{header.key}: {header.value}")
+
+    # Add Content-Type if the body implies one and none was explicitly set
+    if body_ct and not has_ct:
+        lines.append(f"Content-Type: {body_ct}")
+
+    # Body
+    if body_text:
+        lines.append("")
+        lines.append(body_text)
+
+    return "\n".join(lines)
+
+
+def convert_collection_to_http(
+    collection: PostmanCollection,
+) -> str:
+    """Convert an entire PostmanCollection to a single .http file string.
+
+    The output includes:
+    - Collection name as a header comment
+    - Collection variables as @variable = value
+    - Collection-level events as comments
+    - Folder boundaries as comment banners
+    - All requests in .http format
+    """
+    lines: list[str] = []
+
+    # Header
+    lines.append(f"# {collection.info.name}")
+    if collection.info.description:
+        lines.append(f"# {collection.info.description}")
+    lines.append("")
+
+    # Variables
+    active_vars = [v for v in collection.variables if not v.disabled]
+    for var in active_vars:
+        lines.append(f"@{var.key} = {var.value}")
+    if active_vars:
+        lines.append("")
+
+    # Collection-level events
+    event_comments = _events_to_comments(collection.events)
+    if event_comments:
+        lines.extend(event_comments)
+        lines.append("")
+
+    # Items
+    _convert_items(collection.items, lines, depth=0)
+
+    # Ensure trailing newline
+    result = "\n".join(lines)
+    if not result.endswith("\n"):
+        result += "\n"
+    return result
+
+
+def _convert_items(
+    items: list[PostmanRequest | PostmanFolder],
+    lines: list[str],
+    depth: int,
+) -> None:
+    """Recursively convert items (requests and folders) to .http lines."""
+    for item in items:
+        if isinstance(item, PostmanFolder):
+            sep = "=" * (60 - depth * 2)
+            indent = "  " * depth
+            lines.append(f"# {indent}{sep}")
+            lines.append(f"# {indent}Folder: {item.name}")
+            if item.description:
+                lines.append(f"# {indent}{item.description}")
+            lines.append(f"# {indent}{sep}")
+            lines.append("")
+
+            # Folder-level variables
+            folder_vars = [v for v in item.variables if not v.disabled]
+            for var in folder_vars:
+                lines.append(f"@{var.key} = {var.value}")
+            if folder_vars:
+                lines.append("")
+
+            # Folder-level events
+            event_comments = _events_to_comments(item.events)
+            if event_comments:
+                lines.extend(event_comments)
+                lines.append("")
+
+            _convert_items(item.items, lines, depth + 1)
+        elif isinstance(item, PostmanRequest):
+            lines.append(_convert_request(item))
+            lines.append("")
+
+
+def convert_collection_to_http_per_folder(
+    collection: PostmanCollection,
+) -> dict[str, str]:
+    """Convert a PostmanCollection into multiple .http files, one per folder.
+
+    Top-level requests go into a file named after the collection.
+    Each folder produces a separate file named after the folder.
+
+    Returns:
+        Dict mapping filename (without .http extension) to .http content.
+    """
+    result: dict[str, str] = {}
+
+    # Header + variables preamble (shared across all files)
+    preamble_lines: list[str] = []
+    preamble_lines.append(f"# {collection.info.name}")
+    if collection.info.description:
+        preamble_lines.append(f"# {collection.info.description}")
+    preamble_lines.append("")
+
+    active_vars = [v for v in collection.variables if not v.disabled]
+    for var in active_vars:
+        preamble_lines.append(f"@{var.key} = {var.value}")
+    if active_vars:
+        preamble_lines.append("")
+
+    preamble = "\n".join(preamble_lines)
+
+    # Top-level requests
+    top_level_lines: list[str] = []
+    for item in collection.items:
+        if isinstance(item, PostmanRequest):
+            top_level_lines.append(_convert_request(item))
+            top_level_lines.append("")
+
+    if top_level_lines:
+        content = preamble + "\n".join(top_level_lines)
+        if not content.endswith("\n"):
+            content += "\n"
+        result[_safe_filename(collection.info.name or "collection")] = content
+
+    # Folders
+    for item in collection.items:
+        if isinstance(item, PostmanFolder):
+            folder_lines: list[str] = []
+            _collect_requests_from_folder(item, folder_lines)
+            if folder_lines:
+                content = preamble + "\n".join(folder_lines)
+                if not content.endswith("\n"):
+                    content += "\n"
+                result[_safe_filename(item.name)] = content
+
+    return result
+
+
+def _collect_requests_from_folder(
+    folder: PostmanFolder,
+    lines: list[str],
+) -> None:
+    """Recursively collect all requests from a folder into lines."""
+    for item in folder.items:
+        if isinstance(item, PostmanRequest):
+            lines.append(_convert_request(item))
+            lines.append("")
+        elif isinstance(item, PostmanFolder):
+            # Add subfolder banner
+            lines.append(f"# ===== {item.name} =====")
+            lines.append("")
+            _collect_requests_from_folder(item, lines)
+
+
+def _safe_filename(name: str) -> str:
+    """Convert a name to a safe filename (lowercase, hyphens, no special chars)."""
+    import re
+
+    safe = re.sub(r"[^\w\s-]", "", name.lower())
+    safe = re.sub(r"[\s_]+", "-", safe)
+    return safe.strip("-") or "collection"

@@ -324,3 +324,59 @@ def envs(env_file: str | None) -> None:
         table.add_row(env_name, var_names or "[dim]empty[/]")
 
     console.print(table)
+
+
+@main.command()
+@click.argument("postman_file", type=click.Path(exists=True))
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    help="Output directory for .http files (default: current directory).",
+)
+@click.option(
+    "--split-folders",
+    is_flag=True,
+    help="Create one .http file per top-level folder.",
+)
+def convert(postman_file: str, output: str | None, split_folders: bool) -> None:
+    """Convert a Postman collection to .http file(s)."""
+    import json
+    import re
+
+    from fling.core.postman import (
+        convert_collection_to_http,
+        convert_collection_to_http_per_folder,
+        parse_postman_collection,
+    )
+
+    try:
+        collection = parse_postman_collection(postman_file)
+    except (ValueError, json.JSONDecodeError) as exc:
+        error_console.print(f"[bold red]Error[/]: {exc}")
+        sys.exit(1)
+
+    output_dir = Path(output) if output else Path(".")
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if split_folders:
+        files = convert_collection_to_http_per_folder(collection)
+        if not files:
+            error_console.print("[yellow]No requests found in collection.[/]")
+            sys.exit(0)
+
+        for name, content in files.items():
+            file_path = output_dir / f"{name}.http"
+            file_path.write_text(content, encoding="utf-8")
+            console.print(f"[green]Created[/] {file_path}")
+
+        console.print(f"\n[bold]Converted {len(files)} file(s)[/]")
+    else:
+        content = convert_collection_to_http(collection)
+        # Use collection name as filename
+        safe_name = collection.info.name.lower().replace(" ", "-") or "collection"
+        safe_name = re.sub(r"[^\w-]", "", safe_name)
+        file_path = output_dir / f"{safe_name}.http"
+        file_path.write_text(content, encoding="utf-8")
+        console.print(f"[green]Created[/] {file_path}")
+        console.print(f"\n[bold]Converted collection '{collection.info.name}'[/]")
