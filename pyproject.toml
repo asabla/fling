@@ -1,7 +1,88 @@
 [project]
 name = "fling"
 version = "0.1.0"
-description = "Add your description here"
+description = "A Python .http file runner with CLI, TUI, and web interfaces"
 readme = "README.md"
-requires-python = ">=3.11"
-dependencies = []
+license = "MIT"
+requires-python = ">=3.12"
+dependencies = [
+    "click>=8.1",
+    "httpx>=0.27",
+    "rich>=13.0",
+    "pydantic>=2.7",
+    "jsonpath-ng>=1.6",
+    "python-dotenv>=1.0",
+]
+
+[project.optional-dependencies]
+tui = ["textual>=0.70"]
+web = [
+    "fastapi>=0.111",
+    "uvicorn[standard]>=0.30",
+    "jinja2>=3.1",
+    "jinja2-fragments>=1.4",
+    "sse-starlette>=2.0",
+]
+all = ["fling[tui,web]"]
+
+[project.scripts]
+fling = "fling.cli:main"
+
+[build-system]
+requires = ["uv_build>=0.10.0,<0.11.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    { include-group = "test" },
+    { include-group = "lint" },
+    "mypy>=1.10",
+    "pre-commit>=3.7",
+]
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "pytest-asyncio>=0.23",
+    "pytest-httpx>=0.30",
+]
+lint = ["ruff>=0.4"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "SIM",  # flake8-simplify
+    "TCH",  # flake8-type-checking
+    "RUF",  # ruff-specific
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["fling"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+plugins = ["pydantic.mypy"]
+
+[[tool.mypy.overrides]]
+module = ["jsonpath_ng.*"]
+ignore_missing_imports = true
