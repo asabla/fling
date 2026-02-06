@@ -35,6 +35,25 @@
     </div>
     {% endif %}
 
+    <!-- Prompt variables form -->
+    {% if req.metadata.prompt_vars %}
+    <div id="prompt-vars-form" class="bg-surface-light rounded p-3 space-y-2">
+        <h3 class="text-xs font-semibold uppercase tracking-wider text-accent-dim mb-1">Prompt Variables</h3>
+        {% for var_name, description in req.metadata.prompt_vars.items() %}
+        <div class="flex items-center gap-2">
+            <label class="text-sm text-accent font-mono w-32 shrink-0" for="prompt-{{ var_name }}">{{ var_name }}</label>
+            <input
+                type="text"
+                id="prompt-{{ var_name }}"
+                name="prompt_{{ var_name }}"
+                placeholder="{{ description or var_name }}"
+                class="flex-1 bg-surface border border-surface-lighter rounded px-2 py-1 text-sm text-accent focus:border-accent focus:outline-none"
+            >
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
     <!-- Tabs: Headers / Body / Info -->
     <div data-tab-group="request-tabs">
         <div class="flex border-b border-surface-lighter mb-3">
