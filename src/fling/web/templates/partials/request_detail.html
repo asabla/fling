@@ -1,27 +1,12 @@
 <!-- Request detail: read-only display of selected request -->
+{% from "partials/macros.html" import method_badge_lg %}
+
 {% if selected_request %}
 {% set req = selected_request %}
 <div class="p-4 space-y-4">
     <!-- Method + URL bar -->
     <div class="flex items-center gap-3">
-        {% set method = req.method.value %}
-        {% if method == 'GET' %}
-        <span class="text-method-get font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">GET</span>
-        {% elif method == 'POST' %}
-        <span class="text-method-post font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">POST</span>
-        {% elif method == 'PUT' %}
-        <span class="text-method-put font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">PUT</span>
-        {% elif method == 'PATCH' %}
-        <span class="text-method-patch font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">PATCH</span>
-        {% elif method == 'DELETE' %}
-        <span class="text-method-delete font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">DELETE</span>
-        {% elif method == 'HEAD' %}
-        <span class="text-method-head font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">HEAD</span>
-        {% elif method == 'OPTIONS' %}
-        <span class="text-method-options font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">OPTIONS</span>
-        {% else %}
-        <span class="text-accent-dim font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">{{ method }}</span>
-        {% endif %}
+        {{ method_badge_lg(req.method.value) }}
         <code class="text-sm text-accent font-mono flex-1 truncate">{{ req.url }}</code>
         {% if req.http_version %}
         <span class="text-xs text-accent-dim">{{ req.http_version }}</span>
@@ -68,22 +53,22 @@
 
     <!-- Tabs: Headers / Body / Info -->
     <div data-tab-group="request-tabs">
-        <div class="flex border-b border-surface-lighter mb-3">
-            <button class="tab-btn active px-3 py-1.5 text-sm" data-tab="headers" onclick="switchTab('request-tabs', 'headers')">
+        <div class="flex border-b border-surface-lighter mb-3" role="tablist" aria-label="Request details">
+            <button class="tab-btn active px-3 py-1.5 text-sm" role="tab" aria-selected="true" aria-controls="panel-headers" data-tab="headers" onclick="switchTab('request-tabs', 'headers')">
                 Headers{% if req.headers %} ({{ req.headers|length }}){% endif %}
             </button>
             {% if req.body %}
-            <button class="tab-btn px-3 py-1.5 text-sm" data-tab="body" onclick="switchTab('request-tabs', 'body')">
+            <button class="tab-btn px-3 py-1.5 text-sm" role="tab" aria-selected="false" aria-controls="panel-body" data-tab="body" onclick="switchTab('request-tabs', 'body')">
                 Body
             </button>
             {% endif %}
-            <button class="tab-btn px-3 py-1.5 text-sm" data-tab="info" onclick="switchTab('request-tabs', 'info')">
+            <button class="tab-btn px-3 py-1.5 text-sm" role="tab" aria-selected="false" aria-controls="panel-info" data-tab="info" onclick="switchTab('request-tabs', 'info')">
                 Info
             </button>
         </div>
 
         <!-- Headers tab -->
-        <div class="tab-content active" data-tab="headers">
+        <div class="tab-content active" id="panel-headers" role="tabpanel" aria-label="Headers" data-tab="headers">
             {% if req.headers %}
             <table class="w-full text-sm">
                 <thead>
@@ -108,7 +93,7 @@
 
         <!-- Body tab -->
         {% if req.body %}
-        <div class="tab-content" data-tab="body">
+        <div class="tab-content" id="panel-body" role="tabpanel" aria-label="Body" data-tab="body">
             {% if req.body.file_ref %}
             <p class="text-sm text-accent-dim">File reference: <code class="text-accent">{{ req.body.file_ref }}</code></p>
             {% elif req.body.content %}
@@ -120,7 +105,7 @@
         {% endif %}
 
         <!-- Info tab -->
-        <div class="tab-content" data-tab="info">
+        <div class="tab-content" id="panel-info" role="tabpanel" aria-label="Info" data-tab="info">
             <div class="space-y-2 text-sm">
                 {% if req.metadata.disabled %}
                 <div class="text-method-delete"><span class="font-semibold">Status:</span> Disabled</div>

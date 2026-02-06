@@ -18,6 +18,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Request
+from jinja2 import Environment, FileSystemLoader
+from markupsafe import Markup
 from sse_starlette.sse import EventSourceResponse
 
 from fling.core.environment import load_environment
@@ -33,9 +35,24 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/execute")
 
+# ---------------------------------------------------------------------------
+# Template environment for rendering execution HTML fragments
+# ---------------------------------------------------------------------------
+
+_TEMPLATES_DIR = Path(__file__).parent.parent / "templates"
+_jinja_env = Environment(
+    loader=FileSystemLoader(str(_TEMPLATES_DIR)),
+    autoescape=True,
+)
+
+
+def _render(template_name: str, **ctx: object) -> str:
+    """Render a Jinja2 template to a string."""
+    return _jinja_env.get_template(template_name).render(**ctx)
+
 
 # ---------------------------------------------------------------------------
-# Helpers — HTML builders
+# Helpers — formatting
 # ---------------------------------------------------------------------------
 
 
@@ -95,84 +112,41 @@ def _format_body(body: str, language: str) -> str:
     return body
 
 
+# ---------------------------------------------------------------------------
+# Helpers — HTML builders (now backed by Jinja2 templates)
+# ---------------------------------------------------------------------------
+
+
 def _build_response_html(result: ExecutionResult) -> str:
     """Build the full response panel HTML from an execution result."""
     if result.error:
-        return (
-            '<div class="p-4">'
-            '<div class="flex items-center gap-2 mb-4">'
-            '<span class="text-status-error font-bold text-lg">Error</span>'
-            "</div>"
-            f'<pre class="bg-surface-light rounded p-3 text-sm text-status-error">'
-            f"{html.escape(result.error)}</pre>"
-            "</div>"
+        return _render(
+            "partials/response_content.html",
+            error=Markup(html.escape(result.error)),
         )
 
-    status_class = _status_class(result.status_code)
-    elapsed = _format_elapsed(result.elapsed_ms)
-    size = _format_size(result.response_body)
-
-    # Status bar
-    status_html = (
-        '<div class="flex items-center gap-3 mb-4">'
-        f'<span class="{status_class} font-bold text-lg">{result.status_code}</span>'
-        f'<span class="text-accent-dim text-sm">{elapsed}</span>'
-        f'<span class="text-accent-dim text-sm">{size}</span>'
-        "</div>"
-    )
-
-    # Tabs
-    tabs_html = (
-        '<div data-tab-group="response-tabs">'
-        '<div class="flex border-b border-surface-lighter mb-3">'
-        '<button class="tab-btn active px-3 py-1.5 text-sm" data-tab="body" '
-        "onclick=\"switchTab('response-tabs', 'body')\">Body</button>"
-        '<button class="tab-btn px-3 py-1.5 text-sm" data-tab="headers" '
-        "onclick=\"switchTab('response-tabs', 'headers')\">"
-        f"Headers ({len(result.response_headers)})</button>"
-        "</div>"
-    )
-
-    # Body tab
     content_types = result.response_headers.get("content-type", [])
     language = _detect_language(content_types, result.response_body)
     formatted_body = _format_body(result.response_body, language)
-    escaped_body = html.escape(formatted_body)
 
-    lang_class = f" language-{language}" if language else ""
-    body_html = (
-        '<div class="tab-content active" data-tab="body">'
-        f'<pre class="bg-surface-light rounded p-3 overflow-x-auto">'
-        f'<code class="text-sm font-mono{lang_class}">{escaped_body}</code></pre>'
-        "</div>"
-    )
-
-    # Headers tab
-    headers_rows = ""
+    # Flatten headers into (name, value) pairs — pre-escape for exact compat
+    header_rows: list[tuple[Markup, Markup]] = []
     for h_name, h_values in result.response_headers.items():
         for h_val in h_values:
-            headers_rows += (
-                f'<tr class="border-b border-surface-lighter/50">'
-                f'<td class="py-1 pr-4 text-accent font-mono">{html.escape(h_name)}</td>'
-                f'<td class="py-1 font-mono text-accent-dim">{html.escape(h_val)}</td>'
-                f"</tr>"
-            )
+            header_rows.append((Markup(html.escape(h_name)), Markup(html.escape(h_val))))
 
-    headers_html = (
-        '<div class="tab-content" data-tab="headers">'
-        '<table class="w-full text-sm">'
-        "<thead>"
-        '<tr class="text-left text-accent-dim text-xs border-b border-surface-lighter">'
-        '<th class="pb-1 pr-4 font-medium">Name</th>'
-        '<th class="pb-1 font-medium">Value</th>'
-        "</tr>"
-        "</thead>"
-        f"<tbody>{headers_rows}</tbody>"
-        "</table>"
-        "</div>"
+    return _render(
+        "partials/response_content.html",
+        error=None,
+        status_class=_status_class(result.status_code),
+        status_code=result.status_code,
+        elapsed=_format_elapsed(result.elapsed_ms),
+        size=_format_size(result.response_body),
+        language=language,
+        formatted_body=Markup(html.escape(formatted_body)),
+        header_count=len(result.response_headers),
+        header_rows=header_rows,
     )
-
-    return f'<div class="p-4">{status_html}{tabs_html}{body_html}{headers_html}</div></div>'
 
 
 def _log_entry_html(
@@ -183,25 +157,17 @@ def _log_entry_html(
     """Build HTML for a single execution log entry."""
     name = request_def.metadata.name or request_def.url
     method = request_def.method.value
-    elapsed = _format_elapsed(result.elapsed_ms)
-    timestamp = time.strftime("%H:%M:%S")
 
-    if result.error:
-        status_badge = '<span class="text-status-error text-xs font-bold">ERR</span>'
-    else:
-        status_class = _status_class(result.status_code)
-        status_badge = f'<span class="{status_class} text-xs font-bold">{result.status_code}</span>'
-
-    return (
-        f'<div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-light text-sm'
-        f' border-l-2 border-transparent"'
-        f' data-log-index="{index}">'
-        f'<span class="text-accent-dim text-xs font-mono shrink-0">{timestamp}</span>'
-        f'<span class="text-method-{method.lower()} font-mono text-xs font-bold w-14 shrink-0">{method}</span>'
-        f'<span class="truncate flex-1">{html.escape(name)}</span>'
-        f"{status_badge}"
-        f'<span class="text-accent-dim text-xs shrink-0">{elapsed}</span>'
-        f"</div>"
+    return _render(
+        "partials/log_entry.html",
+        timestamp=time.strftime("%H:%M:%S"),
+        method=method,
+        name=Markup(html.escape(name)),
+        error=result.error,
+        status_class=_status_class(result.status_code) if not result.error else "",
+        status_code=result.status_code,
+        elapsed=_format_elapsed(result.elapsed_ms),
+        index=index,
     )
 
 
@@ -213,33 +179,29 @@ def _summary_html(
     total_ms: float,
 ) -> str:
     """Build HTML for the execution summary counter."""
-    elapsed = _format_elapsed(total_ms)
-    parts = [f"{completed}/{total}"]
-    if passed:
-        parts.append(f'<span class="text-status-success">{passed} ok</span>')
-    if failed:
-        parts.append(f'<span class="text-status-error">{failed} fail</span>')
-    parts.append(f'<span class="text-accent-dim">{elapsed}</span>')
-    return " &middot; ".join(parts)
+    return _render(
+        "partials/summary.html",
+        total=total,
+        completed=completed,
+        passed=passed,
+        failed=failed,
+        elapsed=_format_elapsed(total_ms),
+    )
 
 
 def _log_start_html() -> str:
     """Build HTML to clear the log and show a starting message."""
-    return (
-        '<div class="flex items-center gap-2 px-2 py-1 text-sm text-accent-dim">'
-        f'<span class="text-xs font-mono">{time.strftime("%H:%M:%S")}</span>'
-        '<span class="sse-loading">Running all requests...</span>'
-        "</div>"
+    return _render(
+        "partials/log_start.html",
+        timestamp=time.strftime("%H:%M:%S"),
     )
 
 
 def _progress_html(message: str) -> str:
     """Build HTML for a progress indicator."""
-    return (
-        '<div class="flex items-center justify-center h-full p-4">'
-        '<div class="text-center space-y-2">'
-        f'<p class="text-accent sse-loading">{html.escape(message)}</p>'
-        "</div></div>"
+    return _render(
+        "partials/progress.html",
+        message=message,
     )
 
 

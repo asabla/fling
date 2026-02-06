@@ -10,6 +10,20 @@ module.exports = {
     'bg-method-get/30',
     'hover:bg-method-get/30',
     'border-surface-lighter/50',
+    // Method badge colors (used via dynamic Jinja2 classes)
+    'text-method-get',
+    'text-method-post',
+    'text-method-put',
+    'text-method-patch',
+    'text-method-delete',
+    'text-method-head',
+    'text-method-options',
+    // Depth-based margins for file tree
+    'ml-0',
+    'ml-3',
+    'ml-6',
+    'ml-9',
+    'ml-12',
   ],
   theme: {
     extend: {

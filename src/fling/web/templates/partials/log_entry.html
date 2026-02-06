@@ -1,0 +1,12 @@
+{#- Execution log entry: single request result row -#}
+<div class="flex items-center gap-2 px-2 py-1 rounded hover:bg-surface-light text-sm border-l-2 border-transparent" data-log-index="{{ index }}">
+    <span class="text-accent-dim text-xs font-mono shrink-0">{{ timestamp }}</span>
+    <span class="text-method-{{ method|lower }} font-mono text-xs font-bold w-14 shrink-0">{{ method }}</span>
+    <span class="truncate flex-1">{{ name }}</span>
+    {% if error %}
+    <span class="text-status-error text-xs font-bold">ERR</span>
+    {% else %}
+    <span class="{{ status_class }} text-xs font-bold">{{ status_code }}</span>
+    {% endif %}
+    <span class="text-accent-dim text-xs shrink-0">{{ elapsed }}</span>
+</div>

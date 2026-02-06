@@ -231,25 +231,22 @@ async def get_request_compat(request: Request, index: int) -> HTMLResponse:
 
 @router.get("/env")
 async def switch_env(request: Request, env: str = "") -> object:
-    """Switch the active environment and return the full page.
+    """Switch the active environment and redirect back to the index.
 
     This is an HTMX endpoint used by the environment selector dropdown.
+    For HTMX requests, returns an HX-Redirect header so the page reloads
+    cleanly without killing SSE connections.  For normal requests, returns
+    a standard HTTP redirect.
     """
     request.app.state.env_name = env or None
 
-    templates = request.app.state.templates
-    files: dict[str, HttpFile] = request.app.state.files
+    target = f"/?env={env}" if env else "/"
 
-    ctx = _common_context(request)
+    # HTMX request — use HX-Redirect header
+    if request.headers.get("hx-request"):
+        return HTMLResponse(content="", headers={"HX-Redirect": target})
 
-    first_key = next(iter(files), None)
-    first_file = files[first_key] if first_key else None
-    first_request = first_file.requests[0] if first_file and first_file.requests else None
+    # Non-HTMX — standard redirect
+    from starlette.responses import RedirectResponse
 
-    ctx["file_name"] = first_key
-    ctx["requests"] = first_file.requests if first_file else []
-    ctx["selected_request"] = first_request
-    ctx["selected_index"] = 0 if first_request else None
-    ctx["selected_file_key"] = first_key
-
-    return templates.TemplateResponse(request, "index.html", ctx)
+    return RedirectResponse(url=target, status_code=302)

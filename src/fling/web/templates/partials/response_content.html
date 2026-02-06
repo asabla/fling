@@ -1,0 +1,54 @@
+{#- Response panel content: rendered from execution result data -#}
+{% if error %}
+<div class="p-4">
+    <div class="flex items-center gap-2 mb-4">
+        <span class="text-status-error font-bold text-lg">Error</span>
+    </div>
+    <pre class="bg-surface-light rounded p-3 text-sm text-status-error">{{ error }}</pre>
+</div>
+{% else %}
+<div class="p-4">
+    {#- Status bar -#}
+    <div class="flex items-center gap-3 mb-4">
+        <span class="{{ status_class }} font-bold text-lg">{{ status_code }}</span>
+        <span class="text-accent-dim text-sm">{{ elapsed }}</span>
+        <span class="text-accent-dim text-sm">{{ size }}</span>
+    </div>
+
+    {#- Tabs -#}
+    <div data-tab-group="response-tabs">
+        <div class="flex border-b border-surface-lighter mb-3" role="tablist" aria-label="Response details">
+            <button class="tab-btn active px-3 py-1.5 text-sm" role="tab" aria-selected="true" aria-controls="panel-resp-body" data-tab="body" onclick="switchTab('response-tabs', 'body')">Body</button>
+            <button class="tab-btn px-3 py-1.5 text-sm" role="tab" aria-selected="false" aria-controls="panel-resp-headers" data-tab="headers" onclick="switchTab('response-tabs', 'headers')">Headers ({{ header_count }})</button>
+        </div>
+
+        {#- Body tab -#}
+        <div class="tab-content active" id="panel-resp-body" role="tabpanel" aria-label="Response body" data-tab="body">
+            <div class="relative">
+                <button type="button" class="absolute top-2 right-2 text-accent-dim hover:text-accent text-xs px-2 py-1 rounded border border-surface-lighter hover:border-accent/50 bg-surface/80 transition-colors" onclick="copyResponseBody(this)" aria-label="Copy response body">Copy</button>
+                <pre class="bg-surface-light rounded p-3 overflow-x-auto"><code id="response-body-code" class="text-sm font-mono{{ ' language-' + language if language else '' }}">{{ formatted_body }}</code></pre>
+            </div>
+        </div>
+
+        {#- Headers tab -#}
+        <div class="tab-content" id="panel-resp-headers" role="tabpanel" aria-label="Response headers" data-tab="headers">
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-accent-dim text-xs border-b border-surface-lighter">
+                        <th class="pb-1 pr-4 font-medium">Name</th>
+                        <th class="pb-1 font-medium">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for h_name, h_val in header_rows %}
+                    <tr class="border-b border-surface-lighter/50">
+                        <td class="py-1 pr-4 text-accent font-mono">{{ h_name }}</td>
+                        <td class="py-1 font-mono text-accent-dim">{{ h_val }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endif %}

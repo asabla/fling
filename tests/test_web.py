@@ -234,26 +234,36 @@ class TestEnvSwitching:
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/env?env=staging")
-        assert response.status_code == 200
+        assert response.status_code == 302
         assert app.state.env_name == "staging"
+        assert response.headers["location"] == "/?env=staging"
 
     async def test_env_route_clears_env(self) -> None:
         app = create_app(file_path=str(FIXTURES_DIR / "simple.http"), env_name="dev")
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/env?env=")
-        assert response.status_code == 200
+        assert response.status_code == 302
         assert app.state.env_name is None
+        assert response.headers["location"] == "/"
 
-    async def test_env_route_returns_full_page(self) -> None:
+    async def test_env_route_returns_redirect(self) -> None:
         app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/env?env=dev")
+        assert response.status_code == 302
+        assert response.headers["location"] == "/?env=dev"
+        assert app.state.env_name == "dev"
+
+    async def test_env_route_htmx_returns_hx_redirect(self) -> None:
+        app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get("/env?env=staging", headers={"hx-request": "true"})
         assert response.status_code == 200
-        # Should be a full page with HTML structure
-        assert "<!DOCTYPE html>" in response.text
-        assert "fling" in response.text
+        assert response.headers["hx-redirect"] == "/?env=staging"
+        assert app.state.env_name == "staging"
 
 
 # ---------------------------------------------------------------------------
@@ -968,7 +978,7 @@ class TestRunAllButton:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
         assert response.status_code == 200
-        assert "run-all-btn" not in response.text
+        assert 'id="run-all-btn"' not in response.text
 
     async def test_run_all_button_targets_log(self) -> None:
         app = create_app(file_path=str(FIXTURES_DIR / "simple.http"))

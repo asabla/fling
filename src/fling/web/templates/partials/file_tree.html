@@ -1,9 +1,15 @@
 <!-- File tree: hierarchical view of .http files and their requests -->
+{% from "partials/macros.html" import method_badge_sm %}
+
+{#- Depth-based margin classes (avoids dynamic Tailwind class generation) -#}
+{% set depth_margins = ['ml-0', 'ml-3', 'ml-6', 'ml-9', 'ml-12'] %}
+
 {% macro render_tree(nodes, depth=0) %}
+{% set margin_class = depth_margins[depth] if depth < depth_margins|length else depth_margins[-1] %}
 {% for node in nodes %}
 {% if node.is_dir %}
 <!-- Directory node -->
-<details class="ml-{{ depth * 3 }}" open>
+<details class="{{ margin_class }}" open>
     <summary class="flex items-center gap-1.5 px-2 py-1 text-xs font-semibold uppercase tracking-wider text-accent-dim cursor-pointer hover:text-accent select-none">
         <svg class="w-3 h-3 shrink-0 transition-transform details-arrow" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
@@ -19,7 +25,7 @@
 {% set file_key = node.key %}
 {% set http_file = files.get(file_key) if files else None %}
 {% set file_requests = http_file.requests if http_file else [] %}
-<details class="ml-{{ depth * 3 }}" {% if file_key == selected_file_key %}open{% endif %}>
+<details class="{{ margin_class }}" {% if file_key == selected_file_key %}open{% endif %}>
     <summary class="flex items-center gap-1.5 px-2 py-1 text-sm cursor-pointer hover:bg-surface-light rounded select-none {% if file_key == selected_file_key %}text-accent font-medium{% else %}text-accent-dim{% endif %}">
         <svg class="w-3 h-3 shrink-0 transition-transform details-arrow" viewBox="0 0 20 20" fill="currentColor">
             <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L11.168 10 7.23 6.29a.75.75 0 111.04-1.08l4.5 4.25a.75.75 0 010 1.08l-4.5 4.25a.75.75 0 01-1.06-.02z" clip-rule="evenodd" />
@@ -29,35 +35,18 @@
     </summary>
     <div class="space-y-0.5 mt-0.5">
         {% for req in file_requests %}
-        <a
-            href="#"
-            class="request-item flex items-center gap-2 px-2 py-1.5 ml-4 rounded text-sm cursor-pointer hover:bg-surface-light border-l-2 border-transparent transition-colors{% if file_key == selected_file_key and loop.index0 == selected_index %} active{% endif %}"
+        <button
+            type="button"
+            class="request-item flex items-center gap-2 px-2 py-1.5 ml-4 rounded text-sm cursor-pointer hover:bg-surface-light border-l-2 border-transparent transition-colors w-full text-left{% if file_key == selected_file_key and loop.index0 == selected_index %} active{% endif %}"
             hx-get="/file/{{ file_key }}/request/{{ loop.index0 }}"
             hx-target="#request-detail"
             hx-swap="innerHTML"
         >
-            {% set method = req.method.value %}
-            {% if method == 'GET' %}
-            <span class="text-method-get font-mono text-xs font-bold w-14 shrink-0">GET</span>
-            {% elif method == 'POST' %}
-            <span class="text-method-post font-mono text-xs font-bold w-14 shrink-0">POST</span>
-            {% elif method == 'PUT' %}
-            <span class="text-method-put font-mono text-xs font-bold w-14 shrink-0">PUT</span>
-            {% elif method == 'PATCH' %}
-            <span class="text-method-patch font-mono text-xs font-bold w-14 shrink-0">PATCH</span>
-            {% elif method == 'DELETE' %}
-            <span class="text-method-delete font-mono text-xs font-bold w-14 shrink-0">DELETE</span>
-            {% elif method == 'HEAD' %}
-            <span class="text-method-head font-mono text-xs font-bold w-14 shrink-0">HEAD</span>
-            {% elif method == 'OPTIONS' %}
-            <span class="text-method-options font-mono text-xs font-bold w-14 shrink-0">OPTIONS</span>
-            {% else %}
-            <span class="text-accent-dim font-mono text-xs font-bold w-14 shrink-0">{{ method }}</span>
-            {% endif %}
+            {{ method_badge_sm(req.method.value) }}
             <span class="truncate {% if req.metadata.disabled %}line-through text-accent-dim{% endif %}">
                 {{ req.metadata.name or req.url }}
             </span>
-        </a>
+        </button>
         {% endfor %}
     </div>
 </details>

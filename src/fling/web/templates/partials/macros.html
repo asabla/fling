@@ -1,0 +1,21 @@
+{#- Shared Jinja2 macros for fling web templates -#}
+
+{#- Method badge for sidebar / file tree (compact, no background) -#}
+{% macro method_badge_sm(method) -%}
+{% set m = method.upper() %}
+{% if m in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS') -%}
+<span class="text-method-{{ m|lower }} font-mono text-xs font-bold w-14 shrink-0">{{ m }}</span>
+{%- else -%}
+<span class="text-accent-dim font-mono text-xs font-bold w-14 shrink-0">{{ m }}</span>
+{%- endif %}
+{%- endmacro %}
+
+{#- Method badge for request detail view (with background pill) -#}
+{% macro method_badge_lg(method) -%}
+{% set m = method.upper() %}
+{% if m in ('GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'HEAD', 'OPTIONS') -%}
+<span class="text-method-{{ m|lower }} font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">{{ m }}</span>
+{%- else -%}
+<span class="text-accent-dim font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">{{ m }}</span>
+{%- endif %}
+{%- endmacro %}

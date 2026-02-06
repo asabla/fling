@@ -1,0 +1,5 @@
+{#- Execution summary counter -#}
+{{ completed }}/{{ total }}
+{% if passed %} &middot; <span class="text-status-success">{{ passed }} ok</span>{% endif %}
+{% if failed %} &middot; <span class="text-status-error">{{ failed }} fail</span>{% endif %}
+ &middot; <span class="text-accent-dim">{{ elapsed }}</span>

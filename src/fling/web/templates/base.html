@@ -31,7 +31,9 @@
             const group = document.querySelector(`[data-tab-group="${tabGroup}"]`);
             if (!group) return;
             group.querySelectorAll('.tab-btn').forEach(btn => {
-                btn.classList.toggle('active', btn.dataset.tab === tabName);
+                const isActive = btn.dataset.tab === tabName;
+                btn.classList.toggle('active', isActive);
+                btn.setAttribute('aria-selected', isActive ? 'true' : 'false');
             });
             group.querySelectorAll('.tab-content').forEach(content => {
                 content.classList.toggle('active', content.dataset.tab === tabName);
@@ -55,11 +57,176 @@
                 setTimeout(function() { toast.remove(); }, 300);
             }, 3000);
         }
+
+        // Loading states — disable buttons during SSE execution
+        function setButtonLoading(btn, loading) {
+            if (!btn) return;
+            btn.disabled = loading;
+            if (loading) {
+                btn.dataset.originalText = btn.textContent;
+                btn.innerHTML = '<span class="inline-block w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin mr-1"></span>' + btn.textContent;
+                btn.classList.add('opacity-60', 'cursor-not-allowed');
+            } else {
+                btn.textContent = btn.dataset.originalText || btn.textContent;
+                btn.classList.remove('opacity-60', 'cursor-not-allowed');
+            }
+        }
+
+        // Listen for SSE open/close on Send and Run All buttons
+        document.addEventListener('htmx:sseOpen', function(e) {
+            var btn = e.target.closest('#send-btn, #run-all-btn');
+            if (btn) setButtonLoading(btn, true);
+        });
+        document.addEventListener('htmx:sseClose', function(e) {
+            var btn = e.target.closest('#send-btn, #run-all-btn');
+            if (btn) setButtonLoading(btn, false);
+        });
+
+        // Sidebar search — client-side filter by request name, URL, or method
+        function filterSidebar(query) {
+            var tree = document.getElementById('sidebar-tree');
+            if (!tree) return;
+            var q = query.toLowerCase().trim();
+
+            // Show all if empty
+            tree.querySelectorAll('.request-item').forEach(function(item) {
+                var text = item.textContent.toLowerCase();
+                item.style.display = (!q || text.indexOf(q) !== -1) ? '' : 'none';
+            });
+
+            // Show/hide file details based on whether any child requests are visible
+            tree.querySelectorAll('details').forEach(function(details) {
+                var visibleItems = details.querySelectorAll('.request-item:not([style*="display: none"])');
+                var hasChildDetails = details.querySelectorAll('details').length > 0;
+                if (hasChildDetails) {
+                    // Directory node — show if any nested details are visible
+                    var visibleChildren = details.querySelectorAll(':scope > div > details:not([style*="display: none"])');
+                    details.style.display = (!q || visibleChildren.length > 0) ? '' : 'none';
+                } else {
+                    // File node — show if any request items are visible
+                    details.style.display = (!q || visibleItems.length > 0) ? '' : 'none';
+                }
+                // Open matching details when filtering
+                if (q && visibleItems.length > 0) details.open = true;
+            });
+        }
+
+        // Keyboard shortcuts overlay
+        function toggleShortcutsOverlay() {
+            var overlay = document.getElementById('shortcuts-overlay');
+            if (!overlay) return;
+            overlay.classList.toggle('hidden');
+        }
+
+        // Collapsible sidebar (mobile)
+        function toggleSidebar() {
+            var sidebar = document.getElementById('sidebar');
+            var overlay = document.getElementById('sidebar-overlay');
+            if (!sidebar) return;
+            sidebar.classList.toggle('sidebar-open');
+            if (overlay) overlay.classList.toggle('hidden');
+        }
+
+        // Copy response body to clipboard
+        function copyResponseBody(btn) {
+            var code = document.getElementById('response-body-code');
+            if (!code) return;
+            var text = code.textContent || '';
+            navigator.clipboard.writeText(text).then(function() {
+                btn.textContent = 'Copied!';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+            }).catch(function() {
+                btn.textContent = 'Failed';
+                setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+            });
+        }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(e) {
+            var tag = (e.target.tagName || '').toLowerCase();
+            var isInput = tag === 'input' || tag === 'textarea' || tag === 'select' || e.target.isContentEditable;
+
+            // Ctrl+Enter — trigger Send button
+            if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+                e.preventDefault();
+                var sendBtn = document.getElementById('send-btn');
+                if (sendBtn && !sendBtn.disabled) sendBtn.click();
+                return;
+            }
+
+            // Escape — close shortcuts overlay
+            if (e.key === 'Escape') {
+                var overlay = document.getElementById('shortcuts-overlay');
+                if (overlay && !overlay.classList.contains('hidden')) {
+                    overlay.classList.add('hidden');
+                    e.preventDefault();
+                    return;
+                }
+            }
+
+            // Skip shortcuts below when focused on an input
+            if (isInput) return;
+
+            // ? — toggle shortcuts overlay
+            if (e.key === '?') {
+                e.preventDefault();
+                toggleShortcutsOverlay();
+                return;
+            }
+
+            // / — focus sidebar search
+            if (e.key === '/') {
+                e.preventDefault();
+                var search = document.getElementById('sidebar-search');
+                if (search) search.focus();
+                return;
+            }
+
+            // Arrow Up/Down — navigate sidebar request items
+            if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                var items = Array.from(document.querySelectorAll('.request-item:not([style*="display: none"])'));
+                if (items.length === 0) return;
+                var activeIdx = items.findIndex(function(el) { return el.classList.contains('active'); });
+                var nextIdx;
+                if (e.key === 'ArrowDown') {
+                    nextIdx = activeIdx < items.length - 1 ? activeIdx + 1 : 0;
+                } else {
+                    nextIdx = activeIdx > 0 ? activeIdx - 1 : items.length - 1;
+                }
+                e.preventDefault();
+                items[nextIdx].click();
+                items[nextIdx].scrollIntoView({ block: 'nearest' });
+                return;
+            }
+
+            // Arrow Left/Right — switch tabs in active tab group
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                var group = document.querySelector('[data-tab-group]');
+                if (!group) return;
+                var tabs = Array.from(group.querySelectorAll('.tab-btn'));
+                if (tabs.length === 0) return;
+                var activeTab = tabs.findIndex(function(btn) { return btn.classList.contains('active'); });
+                var nextTab;
+                if (e.key === 'ArrowRight') {
+                    nextTab = activeTab < tabs.length - 1 ? activeTab + 1 : 0;
+                } else {
+                    nextTab = activeTab > 0 ? activeTab - 1 : tabs.length - 1;
+                }
+                e.preventDefault();
+                tabs[nextTab].click();
+                return;
+            }
+        });
     </script>
 </head>
 <body class="min-h-screen flex flex-col">
+    <!-- Skip to main content link (accessibility) -->
+    <a href="#content" class="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-[100] focus:bg-accent focus:text-surface focus:px-3 focus:py-1.5 focus:rounded focus:text-sm focus:font-medium">
+        Skip to main content
+    </a>
+
     <!-- Toast notifications -->
-    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2" role="status" aria-live="polite"></div>
 
     <!-- File watcher SSE listener (auto-refreshes sidebar on .http file changes) -->
     <div id="file-watcher-sse"
@@ -71,20 +238,19 @@
          class="hidden"
     ></div>
 
-    <!-- Listen for file-change-meta events to show toast notifications -->
+    <!-- Handle file-change-meta events from the same SSE connection for toast notifications -->
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const watcher = document.getElementById('file-watcher-sse');
-            if (!watcher) return;
-
-            // Listen for the meta event via SSE
-            const source = new EventSource('/events/files');
-            source.addEventListener('file-change-meta', function(e) {
+            var sse = document.getElementById('file-watcher-sse');
+            if (!sse) return;
+            sse.addEventListener('htmx:sseMessage', function(e) {
+                var evt = e.detail;
+                if (!evt || evt.type !== 'file-change-meta') return;
                 try {
-                    const data = JSON.parse(e.data);
-                    const action = data.type === 'added' ? 'Added' :
-                                   data.type === 'deleted' ? 'Removed' :
-                                   'Updated';
+                    var data = JSON.parse(evt.data);
+                    var action = data.type === 'added' ? 'Added' :
+                                 data.type === 'deleted' ? 'Removed' :
+                                 'Updated';
                     showToast(action + ': ' + data.file, data.type);
                 } catch(err) { /* ignore parse errors */ }
             });
@@ -92,8 +258,12 @@
     </script>
 
     <!-- Header -->
-    <header class="bg-surface-light border-b border-surface-lighter px-4 py-2 flex items-center justify-between shrink-0">
+    <header role="banner" class="bg-surface-light border-b border-surface-lighter px-4 py-2 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">
+            <!-- Sidebar toggle (mobile) -->
+            <button type="button" id="sidebar-toggle" class="md:hidden text-accent-dim hover:text-accent p-1 -ml-1" onclick="toggleSidebar()" aria-label="Toggle sidebar">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+            </button>
             <h1 class="text-lg font-bold text-accent">fling</h1>
             {% block header_extra %}{% endblock %}
         </div>
@@ -106,5 +276,23 @@
     <main class="flex-1 flex overflow-hidden">
         {% block content %}{% endblock %}
     </main>
+
+    <!-- Keyboard shortcuts overlay -->
+    <div id="shortcuts-overlay" class="hidden fixed inset-0 z-[90] flex items-center justify-center bg-black/50" onclick="if(event.target===this)toggleShortcutsOverlay()">
+        <div class="bg-surface border border-surface-lighter rounded-lg shadow-xl p-6 max-w-sm w-full mx-4" role="dialog" aria-label="Keyboard shortcuts">
+            <div class="flex items-center justify-between mb-4">
+                <h2 class="text-sm font-bold text-accent uppercase tracking-wider">Keyboard Shortcuts</h2>
+                <button type="button" class="text-accent-dim hover:text-accent text-lg leading-none" onclick="toggleShortcutsOverlay()" aria-label="Close">&times;</button>
+            </div>
+            <dl class="space-y-2 text-sm">
+                <div class="flex justify-between"><dt class="text-accent-dim">Send request</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">Ctrl+Enter</kbd></dd></div>
+                <div class="flex justify-between"><dt class="text-accent-dim">Navigate requests</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">&uarr;</kbd> <kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">&darr;</kbd></dd></div>
+                <div class="flex justify-between"><dt class="text-accent-dim">Switch tabs</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">&larr;</kbd> <kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">&rarr;</kbd></dd></div>
+                <div class="flex justify-between"><dt class="text-accent-dim">Focus search</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">/</kbd></dd></div>
+                <div class="flex justify-between"><dt class="text-accent-dim">Show shortcuts</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">?</kbd></dd></div>
+                <div class="flex justify-between"><dt class="text-accent-dim">Close overlay</dt><dd><kbd class="bg-surface-light border border-surface-lighter rounded px-1.5 py-0.5 text-xs font-mono text-accent">Esc</kbd></dd></div>
+            </dl>
+        </div>
+    </div>
 </body>
 </html>
