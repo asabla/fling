@@ -526,3 +526,103 @@ def serve(path: str | None, port: int, host: str, env: str | None, watch: bool) 
 
     app = create_app(file_path=file_path, directory=directory, env_name=env, watch=watch)
     uvicorn.run(app, host=host, port=port)
+
+
+@main.command()
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--check", is_flag=True, help="Don't write; exit 1 if any file would change.")
+@click.option("--diff", "show_diff", is_flag=True, help="Show diff of changes instead of writing.")
+def fmt(files: tuple[str, ...], check: bool, show_diff: bool) -> None:
+    """Format .http file(s) to canonical style.
+
+    Normalises whitespace, aligns headers, ensures consistent ``###``
+    separators, and sorts file-level variables to the top.
+    """
+    import difflib
+
+    from fling.core.formatter import format_http_file
+
+    would_change = False
+
+    for file_arg in files:
+        file_path = Path(file_arg)
+
+        # If it's a directory, collect all .http files within it
+        targets = sorted(file_path.rglob("*.http")) if file_path.is_dir() else [file_path]
+
+        for target in targets:
+            original = target.read_text(encoding="utf-8")
+            formatted = format_http_file(target)
+
+            if original == formatted:
+                continue
+
+            would_change = True
+
+            if check:
+                error_console.print(f"[yellow]Would reformat[/] {target}")
+            elif show_diff:
+                diff = difflib.unified_diff(
+                    original.splitlines(keepends=True),
+                    formatted.splitlines(keepends=True),
+                    fromfile=str(target),
+                    tofile=str(target),
+                )
+                console.print("".join(diff), end="", highlight=False)
+            else:
+                target.write_text(formatted, encoding="utf-8")
+                console.print(f"[green]Formatted[/] {target}")
+
+    if check and would_change:
+        sys.exit(1)
+
+    if not would_change and not check:
+        console.print("[dim]All files already formatted.[/]")
+
+
+@main.command()
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True))
+@click.option("--strict", is_flag=True, help="Treat warnings as errors.")
+def validate(files: tuple[str, ...], strict: bool) -> None:
+    """Validate .http file(s) for common issues.
+
+    Checks for duplicate request names, circular @ref dependencies,
+    undefined variable references, missing Content-Type headers, and
+    parse errors.
+    """
+    from fling.core.validator import validate_http_file
+
+    total_errors = 0
+    total_warnings = 0
+
+    for file_arg in files:
+        file_path = Path(file_arg)
+
+        # If it's a directory, collect all .http files within it
+        targets = sorted(file_path.rglob("*.http")) if file_path.is_dir() else [file_path]
+
+        for target in targets:
+            result = validate_http_file(target)
+
+            for issue in result.issues:
+                style = "bold red" if issue.severity.value == "error" else "yellow"
+                error_console.print(f"[{style}]{issue.format()}[/{style}]")
+
+            total_errors += result.error_count
+            total_warnings += result.warning_count
+
+    if strict:
+        total_errors += total_warnings
+
+    if total_errors:
+        error_console.print(
+            f"\n[bold red]Validation failed:[/] {total_errors} error(s)"
+            + (f", {total_warnings} warning(s)" if total_warnings and not strict else ""),
+        )
+        sys.exit(1)
+
+    if total_warnings:
+        error_console.print(f"\n[yellow]{total_warnings} warning(s)[/]")
+
+    if not total_errors and not total_warnings:
+        console.print("[green]All files valid.[/]")
