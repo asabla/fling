@@ -1,0 +1,138 @@
+<!-- Request detail: read-only display of selected request -->
+{% if selected_request %}
+{% set req = selected_request %}
+<div class="p-4 space-y-4">
+    <!-- Method + URL bar -->
+    <div class="flex items-center gap-3">
+        {% set method = req.method.value %}
+        {% if method == 'GET' %}
+        <span class="text-method-get font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">GET</span>
+        {% elif method == 'POST' %}
+        <span class="text-method-post font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">POST</span>
+        {% elif method == 'PUT' %}
+        <span class="text-method-put font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">PUT</span>
+        {% elif method == 'PATCH' %}
+        <span class="text-method-patch font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">PATCH</span>
+        {% elif method == 'DELETE' %}
+        <span class="text-method-delete font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">DELETE</span>
+        {% elif method == 'HEAD' %}
+        <span class="text-method-head font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">HEAD</span>
+        {% elif method == 'OPTIONS' %}
+        <span class="text-method-options font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">OPTIONS</span>
+        {% else %}
+        <span class="text-accent-dim font-mono font-bold text-sm px-2 py-0.5 rounded bg-surface-light">{{ method }}</span>
+        {% endif %}
+        <code class="text-sm text-accent font-mono flex-1 truncate">{{ req.url }}</code>
+        {% if req.http_version %}
+        <span class="text-xs text-accent-dim">{{ req.http_version }}</span>
+        {% endif %}
+    </div>
+
+    <!-- Request name -->
+    {% if req.metadata.name %}
+    <div class="text-xs text-accent-dim">
+        <span class="font-semibold">Name:</span> {{ req.metadata.name }}
+    </div>
+    {% endif %}
+
+    <!-- Tabs: Headers / Body / Info -->
+    <div data-tab-group="request-tabs">
+        <div class="flex border-b border-surface-lighter mb-3">
+            <button class="tab-btn active px-3 py-1.5 text-sm" data-tab="headers" onclick="switchTab('request-tabs', 'headers')">
+                Headers{% if req.headers %} ({{ req.headers|length }}){% endif %}
+            </button>
+            {% if req.body %}
+            <button class="tab-btn px-3 py-1.5 text-sm" data-tab="body" onclick="switchTab('request-tabs', 'body')">
+                Body
+            </button>
+            {% endif %}
+            <button class="tab-btn px-3 py-1.5 text-sm" data-tab="info" onclick="switchTab('request-tabs', 'info')">
+                Info
+            </button>
+        </div>
+
+        <!-- Headers tab -->
+        <div class="tab-content active" data-tab="headers">
+            {% if req.headers %}
+            <table class="w-full text-sm">
+                <thead>
+                    <tr class="text-left text-accent-dim text-xs border-b border-surface-lighter">
+                        <th class="pb-1 pr-4 font-medium">Name</th>
+                        <th class="pb-1 font-medium">Value</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for header in req.headers %}
+                    <tr class="border-b border-surface-lighter/50">
+                        <td class="py-1 pr-4 text-accent font-mono">{{ header.name }}</td>
+                        <td class="py-1 font-mono text-accent-dim">{{ header.value }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-sm text-accent-dim">No headers defined.</p>
+            {% endif %}
+        </div>
+
+        <!-- Body tab -->
+        {% if req.body %}
+        <div class="tab-content" data-tab="body">
+            {% if req.body.file_ref %}
+            <p class="text-sm text-accent-dim">File reference: <code class="text-accent">{{ req.body.file_ref }}</code></p>
+            {% elif req.body.content %}
+            <pre class="bg-surface-light rounded p-3 overflow-x-auto"><code class="text-sm font-mono {% if req.body.is_graphql %}language-graphql{% else %}language-json{% endif %}">{{ req.body.content }}</code></pre>
+            {% else %}
+            <p class="text-sm text-accent-dim">Empty body.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        <!-- Info tab -->
+        <div class="tab-content" data-tab="info">
+            <div class="space-y-2 text-sm">
+                {% if req.metadata.disabled %}
+                <div class="text-method-delete"><span class="font-semibold">Status:</span> Disabled</div>
+                {% endif %}
+                {% if req.metadata.no_redirect %}
+                <div><span class="font-semibold text-accent-dim">Flag:</span> @no-redirect</div>
+                {% endif %}
+                {% if req.metadata.no_cookie_jar %}
+                <div><span class="font-semibold text-accent-dim">Flag:</span> @no-cookie-jar</div>
+                {% endif %}
+                {% if req.metadata.timeout_ms %}
+                <div><span class="font-semibold text-accent-dim">Timeout:</span> {{ req.metadata.timeout_ms }}ms</div>
+                {% endif %}
+                {% if req.metadata.refs %}
+                <div><span class="font-semibold text-accent-dim">Refs:</span> {{ req.metadata.refs|join(', ') }}</div>
+                {% endif %}
+                {% if req.metadata.prompt_vars %}
+                <div>
+                    <span class="font-semibold text-accent-dim">Prompt variables:</span>
+                    {% for var_name, desc in req.metadata.prompt_vars.items() %}
+                    <span class="inline-block bg-surface-light rounded px-1.5 py-0.5 text-xs mr-1 mt-1">{{ var_name }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if req.response_handler %}
+                <div><span class="font-semibold text-accent-dim">Response handler:</span>
+                    {% if req.response_handler.inline_script %}inline script{% endif %}
+                    {% if req.response_handler.file_ref %}{{ req.response_handler.file_ref }}{% endif %}
+                </div>
+                {% endif %}
+                {% if req.response_save_path %}
+                <div><span class="font-semibold text-accent-dim">Save response to:</span> {{ req.response_save_path }}</div>
+                {% endif %}
+                {% if req.metadata.note %}
+                <div><span class="font-semibold text-accent-dim">Note:</span> {{ req.metadata.note }}</div>
+                {% endif %}
+                <div><span class="font-semibold text-accent-dim">Location:</span> lines {{ req.location.start_line }}-{{ req.location.end_line }}</div>
+            </div>
+        </div>
+    </div>
+</div>
+{% else %}
+<div class="flex items-center justify-center h-full text-accent-dim text-sm">
+    <p>Select a request from the sidebar to view details.</p>
+</div>
+{% endif %}

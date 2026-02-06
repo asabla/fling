@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+
+{% block title %}fling{% if file_name %} - {{ file_name }}{% endif %}{% endblock %}
+
+{% block header_extra %}
+{% if file_name %}
+<span class="text-sm text-accent-dim">{{ file_name }}</span>
+{% endif %}
+{% endblock %}
+
+{% block header_right %}
+<!-- Environment selector -->
+{% if environments %}
+<label class="text-xs text-accent-dim mr-1">Env:</label>
+<select
+    id="env-select"
+    class="bg-surface border border-surface-lighter rounded px-2 py-1 text-sm text-accent"
+    hx-get="/"
+    hx-target="body"
+    hx-swap="outerHTML"
+    name="env"
+>
+    <option value="">None</option>
+    {% for env in environments %}
+    <option value="{{ env }}" {% if env == env_name %}selected{% endif %}>{{ env }}</option>
+    {% endfor %}
+</select>
+{% endif %}
+{% endblock %}
+
+{% block content %}
+<!-- Sidebar: collection tree -->
+<aside id="sidebar" class="w-72 min-w-[14rem] max-w-[24rem] border-r border-surface-lighter overflow-y-auto shrink-0">
+    <div class="p-3">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-accent-dim mb-2">Requests</h2>
+        {% include "partials/collection_tree.html" %}
+    </div>
+</aside>
+
+<!-- Content area -->
+<div id="content" class="flex-1 flex flex-col overflow-hidden">
+    <!-- Request detail panel -->
+    <div id="request-detail" class="flex-1 overflow-y-auto border-b border-surface-lighter">
+        {% include "partials/request_detail.html" %}
+    </div>
+
+    <!-- Response panel -->
+    <div id="response-panel" class="flex-1 overflow-y-auto">
+        {% include "partials/response_panel.html" %}
+    </div>
+</div>
+{% endblock %}
