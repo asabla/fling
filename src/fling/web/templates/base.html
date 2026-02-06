@@ -37,9 +37,60 @@
                 content.classList.toggle('active', content.dataset.tab === tabName);
             });
         }
+
+        // Toast notification
+        function showToast(message, type) {
+            const container = document.getElementById('toast-container');
+            if (!container) return;
+            const toast = document.createElement('div');
+            const colorClass = type === 'added' ? 'text-status-success' :
+                               type === 'deleted' ? 'text-status-error' :
+                               'text-accent';
+            toast.className = 'px-3 py-2 bg-surface-light border border-surface-lighter rounded shadow-lg text-sm ' + colorClass + ' animate-fade-in';
+            toast.textContent = message;
+            container.appendChild(toast);
+            setTimeout(function() {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(function() { toast.remove(); }, 300);
+            }, 3000);
+        }
     </script>
 </head>
 <body class="min-h-screen flex flex-col">
+    <!-- Toast notifications -->
+    <div id="toast-container" class="fixed top-4 right-4 z-50 space-y-2"></div>
+
+    <!-- File watcher SSE listener (auto-refreshes sidebar on .http file changes) -->
+    <div id="file-watcher-sse"
+         hx-ext="sse"
+         sse-connect="/events/files"
+         sse-swap="file-change"
+         hx-target="#sidebar-tree"
+         hx-swap="innerHTML"
+         class="hidden"
+    ></div>
+
+    <!-- Listen for file-change-meta events to show toast notifications -->
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const watcher = document.getElementById('file-watcher-sse');
+            if (!watcher) return;
+
+            // Listen for the meta event via SSE
+            const source = new EventSource('/events/files');
+            source.addEventListener('file-change-meta', function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    const action = data.type === 'added' ? 'Added' :
+                                   data.type === 'deleted' ? 'Removed' :
+                                   'Updated';
+                    showToast(action + ': ' + data.file, data.type);
+                } catch(err) { /* ignore parse errors */ }
+            });
+        });
+    </script>
+
     <!-- Header -->
     <header class="bg-surface-light border-b border-surface-lighter px-4 py-2 flex items-center justify-between shrink-0">
         <div class="flex items-center gap-3">

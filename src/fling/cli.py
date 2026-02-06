@@ -502,7 +502,8 @@ def tui(file: str | None, env: str | None) -> None:
 @click.option("--port", "-p", default=8000, help="Port to serve on.")
 @click.option("--host", default="0.0.0.0", help="Host to bind to.")
 @click.option("--env", "-e", help="Environment name to use.")
-def serve(path: str | None, port: int, host: str, env: str | None) -> None:
+@click.option("--watch/--no-watch", default=True, help="Enable live file watching (default: on).")
+def serve(path: str | None, port: int, host: str, env: str | None, watch: bool) -> None:
     """Launch the web interface for .http files.
 
     PATH can be a single .http file or a directory containing .http files.
@@ -523,5 +524,5 @@ def serve(path: str | None, port: int, host: str, env: str | None) -> None:
     else:
         directory = path
 
-    app = create_app(file_path=file_path, directory=directory, env_name=env)
+    app = create_app(file_path=file_path, directory=directory, env_name=env, watch=watch)
     uvicorn.run(app, host=host, port=port)

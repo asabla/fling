@@ -35,9 +35,12 @@ src/fling/
 │       └── app.tcss
 └── web/                     # FastAPI + HTMX web interface
     ├── app.py               # FastAPI factory with route registration
+    ├── scanner.py           # Directory scanning (scan_directory, scan_single_file)
+    ├── watcher.py           # Live file watcher (FileWatcher, FileChangeEvent)
     ├── routes/
     │   ├── pages.py          # Page routes (index, request detail, env switching)
-    │   └── execution.py      # Execution routes (single + Run All via SSE)
+    │   ├── execution.py      # Execution routes (single + Run All via SSE)
+    │   └── watch.py          # Watch routes (SSE file-change stream, POST /reload)
     ├── templates/
     │   ├── base.html
     │   ├── index.html
@@ -59,7 +62,7 @@ src/fling/
 
 ## Implementation Status
 
-### Completed (21 of 25 tasks)
+### Completed (25 of 25 original tasks + Web Overhaul Phases A–C)
 
 | Phase | Task | Description | Commit |
 |-------|------|-------------|--------|
@@ -83,15 +86,20 @@ src/fling/
 | 5 | 5.3 | Request execution with SSE | `b725828` |
 | 5 | 5.4 | Collection runner with Run All | `62bb5e2` |
 | 6 | 6.1 | Response handler scripting | `01e7999` |
+| 6 | 6.2 | Output formats and CI flags | `74e13a7` |
+| A | — | Bundle web assets locally (Tailwind, vendor JS) | `eb39643` |
+| B | — | Directory scanning + multi-file state | `65c9068` |
+| C | — | Live file watching with SSE hot-reload | *(pending commit)* |
 
-### Remaining (4 tasks)
+### Remaining
 
 | Phase | Task | Description |
 |-------|------|-------------|
-| 6 | 6.2 | Output formats (`--output json/junit/markdown`) and CI flags (`--bail`, `--repeat`, `--filter`, exit codes) |
 | 6 | 6.3 | File formatting (`fling fmt`) and validation (`fling validate`) |
 | 7 | 7.1 | Documentation |
 | 7 | 7.2 | CI/CD (GitHub Actions) |
+| D | — | UI polish & UX improvements (search, keyboard nav, responsive) |
+| E | — | Advanced features (env editing, history, comparison) |
 
 ## Conventions
 

@@ -47,3 +47,12 @@ pre[class*="language-"] {
 }
 .tab-content { display: none; }
 .tab-content.active { display: block; }
+
+/* Toast fade-in animation */
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-8px); }
+    to { opacity: 1; transform: translateY(0); }
+}

@@ -201,6 +201,7 @@ all = [
     { name = "sse-starlette" },
     { name = "textual" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchfiles" },
 ]
 tui = [
     { name = "textual" },
@@ -211,6 +212,7 @@ web = [
     { name = "jinja2-fragments" },
     { name = "sse-starlette" },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "watchfiles" },
 ]
 
 [package.dev-dependencies]
@@ -248,6 +250,7 @@ requires-dist = [
     { name = "sse-starlette", marker = "extra == 'web'", specifier = ">=2.0" },
     { name = "textual", marker = "extra == 'tui'", specifier = ">=0.70" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'web'", specifier = ">=0.30" },
+    { name = "watchfiles", marker = "extra == 'web'", specifier = ">=1.0" },
 ]
 provides-extras = ["tui", "web", "all"]
 

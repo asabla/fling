@@ -11,6 +11,17 @@
 {% endblock %}
 
 {% block header_right %}
+<!-- Reload button -->
+<button
+    id="reload-btn"
+    class="text-accent-dim hover:text-accent text-xs px-2 py-1 rounded border border-surface-lighter hover:border-accent/50 transition-colors"
+    hx-post="/reload"
+    hx-target="#sidebar-tree"
+    hx-swap="innerHTML"
+    title="Reload all .http files"
+>
+    Reload
+</button>
 <!-- Environment selector -->
 {% if environments %}
 <label class="text-xs text-accent-dim mr-1">Env:</label>
