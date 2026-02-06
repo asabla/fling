@@ -701,13 +701,13 @@ class TestSendButton:
         assert 'hx-target="#response-content"' in response.text
 
     async def test_send_button_sse_connect_url(self) -> None:
-        """Send button SSE connect URL should include the request index."""
+        """Send button SSE connect URL should include the file key and request index."""
         app = create_app(file_path=str(FIXTURES_DIR / "multiple.http"))
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/request/1")
         assert response.status_code == 200
-        assert 'sse-connect="/execute/1"' in response.text
+        assert 'sse-connect="/execute/multiple.http/request/1"' in response.text
 
 
 # ---------------------------------------------------------------------------
@@ -976,7 +976,7 @@ class TestRunAllButton:
         async with AsyncClient(transport=transport, base_url="http://test") as client:
             response = await client.get("/")
         assert response.status_code == 200
-        assert 'sse-connect="/execute/all"' in response.text
+        assert 'sse-connect="/execute/simple.http/all"' in response.text
         assert 'hx-target="#execution-log-entries"' in response.text
 
 

@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 
-{% block title %}fling{% if file_name %} - {{ file_name }}{% endif %}{% endblock %}
+{% block title %}fling{% if dir_name %} - {{ dir_name }}{% elif file_name %} - {{ file_name }}{% endif %}{% endblock %}
 
 {% block header_extra %}
-{% if file_name %}
+{% if dir_name %}
+<span class="text-sm text-accent-dim">{{ dir_name }}</span>
+{% elif file_name %}
 <span class="text-sm text-accent-dim">{{ file_name }}</span>
 {% endif %}
 {% endblock %}
@@ -39,7 +41,7 @@
                 id="run-all-btn"
                 class="bg-method-get/20 text-method-get font-bold text-xs px-3 py-1 rounded hover:bg-method-get/30 transition-colors"
                 hx-ext="sse"
-                sse-connect="/execute/all"
+                sse-connect="/execute/{{ selected_file_key }}/all"
                 sse-swap="log"
                 hx-target="#execution-log-entries"
                 hx-swap="beforeend scroll:#execution-log-entries:bottom"
@@ -47,7 +49,9 @@
             >Run All</button>
             {% endif %}
         </div>
-        {% include "partials/collection_tree.html" %}
+        <div id="sidebar-tree">
+            {% include "partials/file_tree.html" %}
+        </div>
     </div>
 </aside>
 

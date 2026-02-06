@@ -4,8 +4,8 @@
     {% for req in requests %}
     <a
         href="#"
-        class="request-item flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-surface-light border-l-2 border-transparent transition-colors{% if loop.index0 == selected_index %} active{% endif %}"
-        hx-get="/request/{{ loop.index0 }}"
+        class="request-item flex items-center gap-2 px-2 py-1.5 rounded text-sm cursor-pointer hover:bg-surface-light border-l-2 border-transparent transition-colors{% if loop.index0 == selected_index and (selected_file_key is not defined or selected_file_key == file_name) %} active{% endif %}"
+        hx-get="/file/{{ selected_file_key or file_name }}/request/{{ loop.index0 }}"
         hx-target="#request-detail"
         hx-swap="innerHTML"
     >

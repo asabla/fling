@@ -4,6 +4,8 @@ Handles running individual HTTP requests with SSE streaming for real-time
 progress updates, response headers, body, and timing information.
 Also provides a collection runner that executes all requests with a
 streaming execution log.
+
+Supports both single-file and multi-file (directory) modes.
 """
 
 from __future__ import annotations
@@ -30,6 +32,11 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/execute")
+
+
+# ---------------------------------------------------------------------------
+# Helpers — HTML builders
+# ---------------------------------------------------------------------------
 
 
 def _status_class(code: int) -> str:
@@ -226,30 +233,110 @@ def _log_start_html() -> str:
     )
 
 
+def _progress_html(message: str) -> str:
+    """Build HTML for a progress indicator."""
+    return (
+        '<div class="flex items-center justify-center h-full p-4">'
+        '<div class="text-center space-y-2">'
+        f'<p class="text-accent sse-loading">{html.escape(message)}</p>'
+        "</div></div>"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Helpers — resolve file context
+# ---------------------------------------------------------------------------
+
+
+def _resolve_file(
+    request: Request, file_key: str | None = None
+) -> tuple[HttpFileModel | None, Path | None, str | None]:
+    """Resolve an HttpFile, its directory, and the active env name.
+
+    When *file_key* is given the file is looked up from ``app.state.files``;
+    otherwise the legacy ``app.state.http_file`` / ``app.state.file_path``
+    attributes are used (backward-compat single-file mode).
+
+    Returns:
+        ``(http_file, env_dir, env_name)`` — any may be ``None``.
+    """
+    env_name: str | None = request.app.state.env_name
+    directory: str | None = request.app.state.directory
+
+    if file_key is not None:
+        files: dict[str, HttpFileModel] = request.app.state.files
+        http_file = files.get(file_key)
+        env_dir = Path(directory) if directory else None
+        return http_file, env_dir, env_name
+
+    # Legacy single-file mode
+    http_file = request.app.state.http_file
+    file_path: str | None = request.app.state.file_path
+    env_dir = Path(file_path).parent if file_path else None
+    return http_file, env_dir, env_name
+
+
+# ---------------------------------------------------------------------------
+# Multi-file routes
+# ---------------------------------------------------------------------------
+
+
+@router.get("/{file_key:path}/all")
+async def execute_file_all(request: Request, file_key: str) -> EventSourceResponse:
+    """Execute all requests in a specific file, streaming results via SSE."""
+    http_file, env_dir, env_name = _resolve_file(request, file_key)
+    return _execute_all_impl(http_file, env_dir, env_name)
+
+
+@router.get("/{file_key:path}/request/{index}")
+async def execute_file_request(request: Request, file_key: str, index: int) -> EventSourceResponse:
+    """Execute a single request from a specific file via SSE."""
+    http_file, env_dir, env_name = _resolve_file(request, file_key)
+    return _execute_request_impl(http_file, env_dir, env_name, index)
+
+
+# ---------------------------------------------------------------------------
+# Backward-compat routes (single-file mode)
+# ---------------------------------------------------------------------------
+
+
 @router.get("/all")
 async def execute_all(request: Request) -> EventSourceResponse:
     """Execute all requests and stream results as an execution log via SSE.
 
-    Streams the following named events:
-    - ``log``: Individual log entry HTML for each completed request
-    - ``summary``: OOB swap for the execution summary counter
-    - ``complete``: Final signal indicating execution is done
-
-    Args:
-        request: The FastAPI request object.
-
-    Returns:
-        SSE event stream.
+    Backward-compatible route — uses the first (or only) loaded file.
     """
-    http_file = request.app.state.http_file
-    file_path = request.app.state.file_path
-    env_name = request.app.state.env_name
+    http_file, env_dir, env_name = _resolve_file(request)
+    return _execute_all_impl(http_file, env_dir, env_name)
+
+
+@router.get("/{index}")
+async def execute_request(request: Request, index: int) -> EventSourceResponse:
+    """Execute a single request by index and stream results via SSE.
+
+    Backward-compatible route — uses the first (or only) loaded file.
+    """
+    http_file, env_dir, env_name = _resolve_file(request)
+    return _execute_request_impl(http_file, env_dir, env_name, index)
+
+
+# ---------------------------------------------------------------------------
+# Shared implementation
+# ---------------------------------------------------------------------------
+
+
+def _execute_all_impl(
+    http_file: HttpFileModel | None,
+    env_dir: Path | None,
+    env_name: str | None,
+) -> EventSourceResponse:
+    """Shared implementation for execute-all routes."""
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         if not http_file or not http_file.requests:
             yield {
                 "event": "log",
-                "data": ('<div class="px-2 py-1 text-sm text-status-error">No requests to execute.</div>'),
+                "data": '<div class="px-2 py-1 text-sm text-status-error">No requests to execute.</div>',
             }
             yield {"event": "complete", "data": "done"}
             return
@@ -264,8 +351,8 @@ async def execute_all(request: Request) -> EventSourceResponse:
 
         # Load environment
         env_config = None
-        if file_path:
-            env_config = load_environment(Path(file_path).parent)
+        if env_dir:
+            env_config = load_environment(env_dir)
 
         runner = HttpRunner(env_file=env_config, env_name=env_name)
 
@@ -304,25 +391,13 @@ async def execute_all(request: Request) -> EventSourceResponse:
     return EventSourceResponse(event_generator())
 
 
-@router.get("/{index}")
-async def execute_request(request: Request, index: int) -> EventSourceResponse:
-    """Execute a single request by index and stream results via SSE.
-
-    Streams the following named events:
-    - ``progress``: Execution progress updates (preparing, sending, etc.)
-    - ``response``: Full response HTML for the response panel
-    - ``complete``: Final signal indicating execution is done
-
-    Args:
-        request: The FastAPI request object.
-        index: Zero-based index of the request to execute.
-
-    Returns:
-        SSE event stream.
-    """
-    http_file = request.app.state.http_file
-    file_path = request.app.state.file_path
-    env_name = request.app.state.env_name
+def _execute_request_impl(
+    http_file: HttpFileModel | None,
+    env_dir: Path | None,
+    env_name: str | None,
+    index: int,
+) -> EventSourceResponse:
+    """Shared implementation for execute-single-request routes."""
 
     async def event_generator() -> AsyncGenerator[dict[str, str], None]:
         if not http_file or index < 0 or index >= len(http_file.requests):
@@ -343,8 +418,8 @@ async def execute_request(request: Request, index: int) -> EventSourceResponse:
 
         # Load environment
         env_config = None
-        if file_path:
-            env_config = load_environment(Path(file_path).parent)
+        if env_dir:
+            env_config = load_environment(env_dir)
 
         # Build runner
         runner_kwargs: dict[str, Any] = {
@@ -388,13 +463,3 @@ async def execute_request(request: Request, index: int) -> EventSourceResponse:
         yield {"event": "complete", "data": "done"}
 
     return EventSourceResponse(event_generator())
-
-
-def _progress_html(message: str) -> str:
-    """Build HTML for a progress indicator."""
-    return (
-        '<div class="flex items-center justify-center h-full p-4">'
-        '<div class="text-center space-y-2">'
-        f'<p class="text-accent sse-loading">{html.escape(message)}</p>'
-        "</div></div>"
-    )

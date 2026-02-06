@@ -498,15 +498,30 @@ def tui(file: str | None, env: str | None) -> None:
 
 
 @main.command()
-@click.argument("file", required=False, type=click.Path(exists=True))
+@click.argument("path", required=False, type=click.Path(exists=True))
 @click.option("--port", "-p", default=8000, help="Port to serve on.")
 @click.option("--host", default="0.0.0.0", help="Host to bind to.")
 @click.option("--env", "-e", help="Environment name to use.")
-def serve(file: str | None, port: int, host: str, env: str | None) -> None:
-    """Launch the web interface for a .http file."""
+def serve(path: str | None, port: int, host: str, env: str | None) -> None:
+    """Launch the web interface for .http files.
+
+    PATH can be a single .http file or a directory containing .http files.
+    When omitted, the current working directory is scanned.
+    """
     import uvicorn
 
     from fling.web.app import create_app
 
-    app = create_app(file_path=file, env_name=env)
+    file_path: str | None = None
+    directory: str | None = None
+
+    if path is None:
+        # Default to CWD
+        directory = "."
+    elif Path(path).is_file():
+        file_path = path
+    else:
+        directory = path
+
+    app = create_app(file_path=file_path, directory=directory, env_name=env)
     uvicorn.run(app, host=host, port=port)
