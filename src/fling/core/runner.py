@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fling.core.executor import HttpExecutor
+from fling.core.scripting import execute_handler
 from fling.core.variables import VariableResolver
 
 if TYPE_CHECKING:
@@ -340,6 +341,19 @@ class HttpRunner:
             resolved_headers=resolved_headers,
             resolved_body=resolved_body,
         )
+
+        # Execute response handler script if present
+        if request.response_handler and not result.error:
+            script_result = execute_handler(
+                handler=request.response_handler,
+                result=result,
+                source_file=request.location.file_path,
+            )
+            result.script_result = script_result
+
+            # Feed global variables back into the resolver
+            if script_result.global_vars:
+                resolver.add_variables(script_result.global_vars)
 
         # Handle response save directives
         if request.response_save_path and not result.error:

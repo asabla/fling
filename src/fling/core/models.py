@@ -108,6 +108,28 @@ class EnvironmentFile(BaseModel):
     environments: dict[str, dict[str, Any]] = Field(default_factory=dict)
 
 
+class ScriptTestResult(BaseModel):
+    """Result of a single client.test() assertion."""
+
+    name: str
+    passed: bool
+    error: str | None = None
+
+
+class ScriptResult(BaseModel):
+    """Result of executing a response handler script."""
+
+    tests: list[ScriptTestResult] = Field(default_factory=list)
+    global_vars: dict[str, Any] = Field(default_factory=dict)
+    warnings: list[str] = Field(default_factory=list)
+    error: str | None = None
+
+    @property
+    def all_passed(self) -> bool:
+        """Return True if all tests passed (or no tests ran)."""
+        return all(t.passed for t in self.tests)
+
+
 class ExecutionResult(BaseModel):
     """The result of executing a single HTTP request."""
 
@@ -120,6 +142,7 @@ class ExecutionResult(BaseModel):
     response_body: str = ""
     elapsed_ms: float = 0.0
     error: str | None = None
+    script_result: ScriptResult | None = None
 
 
 class ParseError(BaseModel):
