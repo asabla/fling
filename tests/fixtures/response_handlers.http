@@ -1,0 +1,29 @@
+# @name preRequestExample
+POST https://api.example.com/data
+Content-Type: application/json
+
+{
+    "timestamp": "{{$timestamp}}"
+}
+
+> {% client.test("Status OK", function() { client.assert(response.status === 200); }); %}
+
+###
+
+# @name multilineHandler
+GET https://api.example.com/status
+
+> {%
+var data = response.body;
+client.test("Has data", function() {
+    client.assert(data !== null);
+});
+client.global.set("lastStatus", data.status);
+%}
+
+###
+
+# @name fileHandler
+GET https://api.example.com/check
+
+> ./handlers/check_response.js

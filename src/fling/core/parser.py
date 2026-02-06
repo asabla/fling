@@ -15,6 +15,7 @@ from fling.core.models import (
     ParseResult,
     RequestBody,
     RequestMetadata,
+    ResponseHandler,
     SourceLocation,
     VariableDefinition,
 )
@@ -29,7 +30,34 @@ _HEADER_RE = re.compile(r"^([\w\-]+)\s*:\s*(.*)$")
 _SEPARATOR_RE = re.compile(r"^###\s*(.*)$")
 _COMMENT_RE = re.compile(r"^\s*(?:#(?!#)|//)\s*(.*)$")
 
-# HTTP methods that can also appear without explicit method (default GET)
+# Metadata comment patterns (# @key value)
+_META_NAME_RE = re.compile(r"^@name\s+(.+)$")
+_META_REF_RE = re.compile(r"^@ref\s+(.+)$")
+_META_NO_REDIRECT_RE = re.compile(r"^@no-redirect\s*$")
+_META_NO_COOKIE_JAR_RE = re.compile(r"^@no-cookie-jar\s*$")
+_META_TIMEOUT_RE = re.compile(r"^@timeout\s+(\d+)\s*$")
+_META_DISABLED_RE = re.compile(r"^@disabled\s*$")
+_META_PROMPT_RE = re.compile(r"^@prompt\s+(\w+)\s*(.*)?$")
+_META_NOTE_RE = re.compile(r"^@note\s+(.+)$")
+
+# Body file reference: < ./file.json
+_FILE_REF_RE = re.compile(r"^<\s+(.+)$")
+
+# Response handler patterns
+_RESPONSE_HANDLER_INLINE_START_RE = re.compile(r"^>\s*\{%\s*$")
+_RESPONSE_HANDLER_INLINE_END_RE = re.compile(r"^%\}\s*$")
+_RESPONSE_HANDLER_INLINE_ONELINE_RE = re.compile(r"^>\s*\{%\s*(.+?)\s*%\}\s*$")
+_RESPONSE_HANDLER_FILE_RE = re.compile(r"^>\s+([^\s{].+)$")
+
+# Pre-request script patterns
+_PRE_REQUEST_INLINE_START_RE = re.compile(r"^<\s*\{%\s*$")
+_PRE_REQUEST_INLINE_END_RE = re.compile(r"^%\}\s*$")
+_PRE_REQUEST_INLINE_ONELINE_RE = re.compile(r"^<\s*\{%\s*(.+?)\s*%\}\s*$")
+
+# Response save directive: >> file.json or >>! file.json
+_RESPONSE_SAVE_RE = re.compile(r"^>>(!?)\s*(.+)$")
+
+# HTTP methods set
 _HTTP_METHODS = {m.value for m in HttpMethod}
 
 
@@ -40,6 +68,7 @@ class _ParserState(Enum):
     HEADERS = auto()
     BODY = auto()
     RESPONSE_HANDLER = auto()
+    PRE_REQUEST_SCRIPT = auto()
 
 
 class HttpFileParser:
@@ -64,6 +93,12 @@ class HttpFileParser:
         self._current_metadata: RequestMetadata = RequestMetadata()
         self._current_comments: list[str] = []
         self._current_start_line: int = 0
+        self._current_response_handler: ResponseHandler | None = None
+        self._current_response_handler_lines: list[str] = []
+        self._current_response_save_path: str | None = None
+        self._current_pre_request_script: str | None = None
+        self._current_pre_request_lines: list[str] = []
+        self._current_file_ref: str | None = None
 
     def parse(self, content: str) -> ParseResult:
         """Parse .http file content and return a ParseResult."""
@@ -71,7 +106,19 @@ class HttpFileParser:
 
         for i, line in enumerate(lines):
             self._line_num = i + 1
-            self._process_line(line)
+            try:
+                self._process_line(line)
+            except Exception as exc:
+                self._errors.append(
+                    ParseError(
+                        message=str(exc),
+                        location=SourceLocation(
+                            file_path=self._file_path,
+                            start_line=self._line_num,
+                            end_line=self._line_num,
+                        ),
+                    )
+                )
 
         # Finalize any in-progress request
         self._finalize_request()
@@ -97,6 +144,8 @@ class HttpFileParser:
             self._process_body(line)
         elif self._state == _ParserState.RESPONSE_HANDLER:
             self._process_response_handler(line)
+        elif self._state == _ParserState.PRE_REQUEST_SCRIPT:
+            self._process_pre_request_script(line)
 
     def _process_idle(self, line: str) -> None:
         """Process a line in IDLE state."""
@@ -130,7 +179,8 @@ class HttpFileParser:
         # Comment (may be metadata)
         comment_match = _COMMENT_RE.match(line)
         if comment_match:
-            self._current_comments.append(comment_match.group(1))
+            comment_text = comment_match.group(1)
+            self._handle_comment_or_meta(comment_text)
             self._state = _ParserState.META
             if self._current_start_line == 0:
                 self._current_start_line = self._line_num
@@ -143,7 +193,7 @@ class HttpFileParser:
             return
 
         # URL without method (implicit GET)
-        if stripped.startswith("http://") or stripped.startswith("https://") or stripped.startswith("{{"):
+        if self._is_url_start(stripped):
             self._current_method = HttpMethod.GET
             self._current_url = stripped
             self._current_http_version = None
@@ -153,30 +203,32 @@ class HttpFileParser:
             return
 
     def _process_meta(self, line: str) -> None:
-        """Process a line in META state (accumulating comments before a request)."""
+        """Process a line in META state (accumulating comments/metadata before a request)."""
         stripped = line.strip()
 
         # Empty line — reset to idle (comments were not before a request)
         if not stripped:
             self._current_comments = []
+            self._current_metadata = RequestMetadata()
             self._current_start_line = 0
             self._state = _ParserState.IDLE
             return
 
-        # More comments
+        # More comments / metadata
         comment_match = _COMMENT_RE.match(line)
         if comment_match:
-            self._current_comments.append(comment_match.group(1))
+            comment_text = comment_match.group(1)
+            self._handle_comment_or_meta(comment_text)
             return
 
-        # Request line after comments
+        # Request line after comments/metadata
         req_match = _REQUEST_LINE_RE.match(stripped)
         if req_match:
             self._start_request(req_match)
             return
 
         # URL without method (implicit GET)
-        if stripped.startswith("http://") or stripped.startswith("https://") or stripped.startswith("{{"):
+        if self._is_url_start(stripped):
             self._current_method = HttpMethod.GET
             self._current_url = stripped
             self._current_http_version = None
@@ -187,6 +239,7 @@ class HttpFileParser:
         var_match = _VARIABLE_RE.match(stripped)
         if var_match:
             self._current_comments = []
+            self._current_metadata = RequestMetadata()
             self._current_start_line = 0
             self._variables.append(
                 VariableDefinition(
@@ -202,8 +255,65 @@ class HttpFileParser:
             self._state = _ParserState.IDLE
             return
 
+        # Separator
+        sep_match = _SEPARATOR_RE.match(stripped)
+        if sep_match:
+            self._current_comments = []
+            self._current_metadata = RequestMetadata()
+            self._current_start_line = 0
+            self._state = _ParserState.IDLE
+            return
+
         # Unrecognized — treat as comment continuation
         self._current_comments.append(stripped)
+
+    def _handle_comment_or_meta(self, text: str) -> None:
+        """Parse a comment line's text for metadata directives or regular comments."""
+        # Check for metadata directives
+        m = _META_NAME_RE.match(text)
+        if m:
+            self._current_metadata.name = m.group(1).strip()
+            return
+
+        m = _META_REF_RE.match(text)
+        if m:
+            self._current_metadata.refs.append(m.group(1).strip())
+            return
+
+        m = _META_NO_REDIRECT_RE.match(text)
+        if m:
+            self._current_metadata.no_redirect = True
+            return
+
+        m = _META_NO_COOKIE_JAR_RE.match(text)
+        if m:
+            self._current_metadata.no_cookie_jar = True
+            return
+
+        m = _META_TIMEOUT_RE.match(text)
+        if m:
+            self._current_metadata.timeout_ms = int(m.group(1))
+            return
+
+        m = _META_DISABLED_RE.match(text)
+        if m:
+            self._current_metadata.disabled = True
+            return
+
+        m = _META_PROMPT_RE.match(text)
+        if m:
+            var_name = m.group(1)
+            description = m.group(2).strip() if m.group(2) else var_name
+            self._current_metadata.prompt_vars[var_name] = description
+            return
+
+        m = _META_NOTE_RE.match(text)
+        if m:
+            self._current_metadata.note = m.group(1).strip()
+            return
+
+        # Regular comment
+        self._current_comments.append(text)
 
     def _process_request_line(self, line: str) -> None:
         """Process a line after seeing the request line (expect headers or blank)."""
@@ -268,27 +378,104 @@ class HttpFileParser:
             self._finalize_request()
             return
 
-        # Response handler start
-        if stripped.startswith("> {%") or (stripped.startswith("> ") and not stripped.startswith(">> ")):
+        # Pre-request script (one-line): < {% script %}
+        pre_oneline = _PRE_REQUEST_INLINE_ONELINE_RE.match(stripped)
+        if pre_oneline:
+            self._current_pre_request_script = pre_oneline.group(1)
+            return
+
+        # Pre-request script (multi-line start): < {%
+        pre_start = _PRE_REQUEST_INLINE_START_RE.match(stripped)
+        if pre_start:
+            self._current_pre_request_lines = []
+            self._state = _ParserState.PRE_REQUEST_SCRIPT
+            return
+
+        # Response handler (one-line): > {% script %}
+        handler_oneline = _RESPONSE_HANDLER_INLINE_ONELINE_RE.match(stripped)
+        if handler_oneline:
+            self._current_response_handler = ResponseHandler(inline_script=handler_oneline.group(1))
+            return
+
+        # Response handler (multi-line start): > {%
+        handler_start = _RESPONSE_HANDLER_INLINE_START_RE.match(stripped)
+        if handler_start:
+            self._current_response_handler_lines = []
             self._state = _ParserState.RESPONSE_HANDLER
             return
 
-        # Response save directive
-        if stripped.startswith(">>"):
+        # Response handler (file reference): > ./handler.js
+        handler_file = _RESPONSE_HANDLER_FILE_RE.match(stripped)
+        if handler_file and not stripped.startswith(">>"):
+            self._current_response_handler = ResponseHandler(file_ref=handler_file.group(1).strip())
             return
+
+        # Response save directive: >> file.json or >>! file.json
+        save_match = _RESPONSE_SAVE_RE.match(stripped)
+        if save_match:
+            self._current_response_save_path = save_match.group(2).strip()
+            return
+
+        # File body reference: < ./file.json (only if no body content yet)
+        if not self._current_body_lines:
+            file_ref_match = _FILE_REF_RE.match(stripped)
+            if file_ref_match:
+                self._current_file_ref = file_ref_match.group(1).strip()
+                return
 
         # Accumulate body line
         self._current_body_lines.append(line)
 
     def _process_response_handler(self, line: str) -> None:
-        """Process a line in RESPONSE_HANDLER state."""
+        """Process a line in RESPONSE_HANDLER state (multi-line script)."""
         stripped = line.strip()
 
         # Separator → finalize request
         sep_match = _SEPARATOR_RE.match(stripped)
         if sep_match:
+            # Finalize handler with accumulated lines
+            self._current_response_handler = ResponseHandler(
+                inline_script="\n".join(self._current_response_handler_lines)
+            )
+            self._current_response_handler_lines = []
             self._finalize_request()
             return
+
+        # End of script block: %}
+        end_match = _RESPONSE_HANDLER_INLINE_END_RE.match(stripped)
+        if end_match:
+            self._current_response_handler = ResponseHandler(
+                inline_script="\n".join(self._current_response_handler_lines)
+            )
+            self._current_response_handler_lines = []
+            self._state = _ParserState.BODY
+            return
+
+        # Accumulate script line
+        self._current_response_handler_lines.append(line)
+
+    def _process_pre_request_script(self, line: str) -> None:
+        """Process a line in PRE_REQUEST_SCRIPT state (multi-line script)."""
+        stripped = line.strip()
+
+        # Separator → finalize request
+        sep_match = _SEPARATOR_RE.match(stripped)
+        if sep_match:
+            self._current_pre_request_script = "\n".join(self._current_pre_request_lines)
+            self._current_pre_request_lines = []
+            self._finalize_request()
+            return
+
+        # End of script block: %}
+        end_match = _PRE_REQUEST_INLINE_END_RE.match(stripped)
+        if end_match:
+            self._current_pre_request_script = "\n".join(self._current_pre_request_lines)
+            self._current_pre_request_lines = []
+            self._state = _ParserState.BODY
+            return
+
+        # Accumulate script line
+        self._current_pre_request_lines.append(line)
 
     def _start_request(self, match: re.Match[str]) -> None:
         """Initialize a new request from a matched request line."""
@@ -309,13 +496,17 @@ class HttpFileParser:
 
         # Build body
         body: RequestBody | None = None
-        if self._current_body_lines:
+        is_graphql = self._detect_graphql()
+
+        if self._current_file_ref:
+            body = RequestBody(file_ref=self._current_file_ref, is_graphql=is_graphql)
+        elif self._current_body_lines:
             # Strip trailing empty lines from body
             body_lines = self._current_body_lines
             while body_lines and not body_lines[-1].strip():
                 body_lines = body_lines[:-1]
             if body_lines:
-                body = RequestBody(content="\n".join(body_lines))
+                body = RequestBody(content="\n".join(body_lines), is_graphql=is_graphql)
 
         request = HttpRequestDefinition(
             method=self._current_method,
@@ -324,6 +515,9 @@ class HttpFileParser:
             headers=self._current_headers,
             body=body,
             metadata=self._current_metadata,
+            response_handler=self._current_response_handler,
+            response_save_path=self._current_response_save_path,
+            pre_request_script=self._current_pre_request_script,
             location=SourceLocation(
                 file_path=self._file_path,
                 start_line=self._current_start_line or 1,
@@ -333,6 +527,15 @@ class HttpFileParser:
         )
         self._requests.append(request)
         self._reset_current()
+
+    def _detect_graphql(self) -> bool:
+        """Check if the current request is a GraphQL request based on headers."""
+        for h in self._current_headers:
+            if h.name.upper() == "X-REQUEST-TYPE" and h.value.upper() == "GRAPHQL":
+                return True
+            if h.name.lower() == "content-type" and "graphql" in h.value.lower():
+                return True
+        return False
 
     def _reset_current(self) -> None:
         """Reset all current-request state."""
@@ -344,7 +547,18 @@ class HttpFileParser:
         self._current_metadata = RequestMetadata()
         self._current_comments = []
         self._current_start_line = 0
+        self._current_response_handler = None
+        self._current_response_handler_lines = []
+        self._current_response_save_path = None
+        self._current_pre_request_script = None
+        self._current_pre_request_lines = []
+        self._current_file_ref = None
         self._state = _ParserState.IDLE
+
+    @staticmethod
+    def _is_url_start(text: str) -> bool:
+        """Check if text looks like the start of a URL."""
+        return text.startswith(("http://", "https://", "{{"))
 
 
 def parse_http_file(file_path: str | Path) -> ParseResult:

@@ -1,0 +1,22 @@
+POST https://api.example.com/upload
+Content-Type: application/json
+
+< ./data/payload.json
+
+###
+
+POST https://api.example.com/save
+Content-Type: application/json
+
+{"key": "value"}
+
+>> output.json
+
+###
+
+POST https://api.example.com/save-force
+Content-Type: application/json
+
+{"key": "value"}
+
+>>! output_force.json

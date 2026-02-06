@@ -1,0 +1,7 @@
+POST https://api.example.com/graphql HTTP/1.1
+Content-Type: application/json
+X-REQUEST-TYPE: GraphQL
+
+{
+    "query": "{ users { id name email } }"
+}

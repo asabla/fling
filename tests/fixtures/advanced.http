@@ -1,0 +1,48 @@
+# @name login
+# @note Authentication request
+# @timeout 5000
+POST https://api.example.com/auth/login HTTP/1.1
+Content-Type: application/json
+
+{
+    "username": "admin",
+    "password": "secret"
+}
+
+> {%
+client.global.set("token", response.body.token);
+client.test("Login successful", function() {
+    client.assert(response.status === 200);
+});
+%}
+
+###
+
+# @name getUsers
+# @ref login
+# @no-redirect
+GET https://api.example.com/users
+Authorization: Bearer {{login.response.body.$.token}}
+
+>> users_response.json
+
+###
+
+# @name createUser
+# @ref login
+# @no-cookie-jar
+# @disabled
+POST https://api.example.com/users
+Content-Type: application/json
+Authorization: Bearer {{token}}
+
+< ./fixtures/new_user.json
+
+###
+
+# @name searchUsers
+# @prompt query Enter search query
+# @prompt limit Enter result limit
+GET https://api.example.com/users/search
+    ?q={{query}}
+    &limit={{limit}}
