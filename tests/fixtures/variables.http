@@ -1,0 +1,8 @@
+@host = api.example.com
+@port = 8080
+@baseUrl = https://{{host}}:{{port}}
+
+###
+
+GET {{baseUrl}}/users
+Accept: application/json

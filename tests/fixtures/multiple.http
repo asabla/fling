@@ -1,0 +1,18 @@
+# Get all users
+GET https://api.example.com/users
+
+###
+
+# Create a user
+POST https://api.example.com/users
+Content-Type: application/json
+
+{
+    "name": "John Doe",
+    "email": "john@example.com"
+}
+
+###
+
+# Delete a user
+DELETE https://api.example.com/users/1
