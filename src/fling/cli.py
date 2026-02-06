@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+from fnmatch import fnmatch
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,6 +20,7 @@ from rich.table import Table
 
 from fling import __version__
 from fling.core.environment import list_environments, load_environment
+from fling.core.formatters import format_json, format_junit, format_markdown
 from fling.core.parser import parse_http_file
 from fling.core.runner import HttpRunner, RunnerError
 
@@ -145,12 +147,21 @@ def main(ctx: click.Context) -> None:
 @click.option(
     "--output",
     "-o",
-    type=click.Choice(["exchange", "headers", "body", "json"]),
+    type=click.Choice(["exchange", "headers", "body", "json", "json-report", "junit", "markdown"]),
     default="exchange",
     help="Output format.",
 )
 @click.option("--timeout", type=int, help="Request timeout in milliseconds.")
 @click.option("--insecure", "-k", is_flag=True, help="Skip SSL verification.")
+@click.option("--bail", is_flag=True, help="Stop on first failure.")
+@click.option("--filter", "filter_pattern", help="Glob pattern to filter requests by name.")
+@click.option("--repeat", "repeat_count", type=int, default=1, help="Number of times to repeat execution.")
+@click.option(
+    "--repeat-mode",
+    type=click.Choice(["sequential", "parallel"]),
+    default="sequential",
+    help="How to run repeated executions.",
+)
 def run(
     file: str,
     name: str | None,
@@ -161,6 +172,10 @@ def run(
     output: str,
     timeout: int | None,
     insecure: bool,
+    bail: bool,
+    filter_pattern: str | None,
+    repeat_count: int,
+    repeat_mode: str,
 ) -> None:
     """Run HTTP requests from a .http file."""
     # Parse the file
@@ -169,13 +184,20 @@ def run(
         for err in parse_result.errors:
             loc = f" at line {err.location.start_line}" if err.location else ""
             error_console.print(f"[bold red]Parse error[/]{loc}: {escape(err.message)}")
-        sys.exit(1)
+        sys.exit(2)
 
     http_file = parse_result.http_file
 
     if not http_file.requests:
         error_console.print("[yellow]No requests found in file.[/]")
         sys.exit(0)
+
+    # Apply filter
+    if filter_pattern:
+        http_file = _filter_requests(http_file, filter_pattern)
+        if not http_file.requests:
+            error_console.print(f"[yellow]No requests matching '{filter_pattern}'.[/]")
+            sys.exit(0)
 
     # Load environment
     env_dir = Path(env_file) if env_file else Path(file).parent
@@ -200,33 +222,82 @@ def run(
     if timeout is not None:
         runner_kwargs["default_timeout"] = timeout / 1000.0
 
-    runner = HttpRunner(**runner_kwargs)  # type: ignore[arg-type]
+    is_report_output = output in ("json-report", "junit", "markdown")
 
     # Execute
-    async def _run() -> int:
+    async def _run_once(runner: HttpRunner) -> tuple[list[tuple[HttpRequestDefinition, ExecutionResult]], int]:
+        """Run requests once and return (collected_results, error_count)."""
+        collected: list[tuple[HttpRequestDefinition, ExecutionResult]] = []
         error_count = 0
+
         if name:
             try:
                 async for req, result in runner.run_single(http_file, name):
-                    _print_result(req, result, output=output, verbose=verbose)
-                    if result.error:
+                    collected.append((req, result))
+                    if not is_report_output:
+                        _print_result(req, result, output=output, verbose=verbose)
+                    if _result_is_failure(result):
                         error_count += 1
+                        if bail:
+                            break
             except RunnerError as exc:
                 error_console.print(f"[bold red]Error[/]: {exc}")
-                return 1
+                return collected, 1
         elif run_all or len(http_file.requests) == 1:
             async for req, result in runner.run_all(http_file):
-                _print_result(req, result, output=output, verbose=verbose)
-                if result.error:
+                collected.append((req, result))
+                if not is_report_output:
+                    _print_result(req, result, output=output, verbose=verbose)
+                if _result_is_failure(result):
                     error_count += 1
+                    if bail:
+                        break
         else:
             # Default: run first request only
             first = http_file.requests[0]
             async for req, result in runner.run_all(_make_single_file(http_file, first)):
-                _print_result(req, result, output=output, verbose=verbose)
-                if result.error:
+                collected.append((req, result))
+                if not is_report_output:
+                    _print_result(req, result, output=output, verbose=verbose)
+                if _result_is_failure(result):
                     error_count += 1
-        return error_count
+                    if bail:
+                        break
+
+        return collected, error_count
+
+    async def _run() -> int:
+        all_results: list[tuple[HttpRequestDefinition, ExecutionResult]] = []
+        total_errors = 0
+
+        if repeat_count > 1 and repeat_mode == "parallel":
+            # Parallel repeat: run all iterations concurrently
+            runners = [HttpRunner(**runner_kwargs) for _ in range(repeat_count)]  # type: ignore[arg-type]
+            tasks = [_run_once(r) for r in runners]
+            outcomes = await asyncio.gather(*tasks)
+            for collected, errors in outcomes:
+                all_results.extend(collected)
+                total_errors += errors
+        else:
+            # Sequential (default)
+            for _ in range(repeat_count):
+                runner = HttpRunner(**runner_kwargs)  # type: ignore[arg-type]
+                collected, errors = await _run_once(runner)
+                all_results.extend(collected)
+                total_errors += errors
+                if bail and errors:
+                    break
+
+        # Emit report-format output
+        if is_report_output and all_results:
+            if output == "json-report":
+                click.echo(format_json(all_results, file_path=file))
+            elif output == "junit":
+                click.echo(format_junit(all_results, file_path=file))
+            elif output == "markdown":
+                click.echo(format_markdown(all_results, file_path=file))
+
+        return total_errors
 
     errors = asyncio.run(_run())
     if errors:
@@ -248,6 +319,39 @@ def _make_single_file(
         variables=http_file.variables,
         requests=[request],
     )
+
+
+def _filter_requests(http_file: HttpFile, pattern: str) -> HttpFile:
+    """Create an HttpFile containing only requests matching the glob pattern.
+
+    Matches against request names using fnmatch. Unnamed requests are
+    excluded when a filter is active.
+
+    Args:
+        http_file: The original parsed http file.
+        pattern: Glob pattern to match request names against.
+
+    Returns:
+        A new HttpFile with only matching requests.
+    """
+    from fling.core.models import HttpFile as HttpFileModel
+
+    matching = [r for r in http_file.requests if r.metadata.name and fnmatch(r.metadata.name, pattern)]
+    return HttpFileModel(
+        file_path=http_file.file_path,
+        variables=http_file.variables,
+        requests=matching,
+    )
+
+
+def _result_is_failure(result: ExecutionResult) -> bool:
+    """Check if a result represents a failure.
+
+    A result is a failure if it has an error or if any script tests failed.
+    """
+    if result.error:
+        return True
+    return bool(result.script_result and not result.script_result.all_passed)
 
 
 @main.command("list")
