@@ -17,28 +17,38 @@ A Python-native HTTP API testing tool built on `.http` files. Run, test, and man
 ## Requirements
 
 - Python 3.12+
-- [uv](https://docs.astral.sh/uv/) (recommended) or pip
+- [uv](https://docs.astral.sh/uv/)
 
 ## Installation
 
 ```bash
+# Clone the repository
+git clone git@github.com:asabla/fling.git
+# or using HTTPS
+git clone https://github.com/asabla/fling.git
+
+cd fling
+
 # Install core (CLI only)
-pip install fling
+uv sync
 
 # Install with TUI support
-pip install fling[tui]
+uv sync --extra tui
 
 # Install with web interface
-pip install fling[web]
+uv sync --extra web
 
 # Install everything
-pip install fling[all]
+uv sync --all-extras
 ```
 
 For development:
 
 ```bash
-git clone <repo-url>
+git clone git@github.com:asabla/fling.git
+# or using HTTPS
+git clone https://github.com/asabla/fling.git
+
 cd fling
 uv sync --all-extras
 ```
