@@ -562,9 +562,34 @@ class HttpFileParser:
 
 
 def parse_http_file(file_path: str | Path) -> ParseResult:
-    """Parse an .http file from disk."""
+    """Parse an .http file from disk.
+
+    Handles file I/O errors gracefully, returning a ParseResult
+    with an error rather than raising an exception.
+    """
     path = Path(file_path)
-    content = path.read_text(encoding="utf-8")
+    try:
+        content = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return ParseResult(
+            http_file=HttpFile(file_path=str(path), variables=[], requests=[]),
+            errors=[ParseError(message=f"File not found: {path}", location=None)],
+        )
+    except PermissionError:
+        return ParseResult(
+            http_file=HttpFile(file_path=str(path), variables=[], requests=[]),
+            errors=[ParseError(message=f"Permission denied: {path}", location=None)],
+        )
+    except UnicodeDecodeError as exc:
+        return ParseResult(
+            http_file=HttpFile(file_path=str(path), variables=[], requests=[]),
+            errors=[ParseError(message=f"Encoding error in {path}: {exc}", location=None)],
+        )
+    except OSError as exc:
+        return ParseResult(
+            http_file=HttpFile(file_path=str(path), variables=[], requests=[]),
+            errors=[ParseError(message=f"Cannot read {path}: {exc}", location=None)],
+        )
     parser = HttpFileParser(file_path=str(path))
     return parser.parse(content)
 

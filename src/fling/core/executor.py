@@ -184,12 +184,17 @@ class HttpExecutor:
                 f"Request timed out: {exc}",
             )
         except httpx.ConnectError as exc:
+            error_msg = f"Connection error: {exc}"
+            # Detect SSL-related errors and suggest --insecure
+            exc_str = str(exc).lower()
+            if "ssl" in exc_str or "certificate" in exc_str or "tls" in exc_str:
+                error_msg = f"SSL certificate error: {exc}\nHint: use --insecure (-k) to skip SSL verification"
             return await self._error_result(
                 request,
                 resolved_url,
                 resolved_headers,
                 resolved_body,
-                f"Connection error: {exc}",
+                error_msg,
             )
         except httpx.HTTPError as exc:
             return await self._error_result(

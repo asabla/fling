@@ -140,7 +140,12 @@ def load_environment(
     public: dict[str, dict[str, Any]] = {}
     if public_path.is_file():
         logger.debug("Loading public environment from %s", public_path)
-        public = load_env_json(public_path)
+        try:
+            public = load_env_json(public_path)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Failed to load %s: %s", public_path, exc)
+        except OSError as exc:
+            logger.warning("Cannot read %s: %s", public_path, exc)
     else:
         logger.debug("No public environment file found at %s", public_path)
 
@@ -149,7 +154,12 @@ def load_environment(
     private: dict[str, dict[str, Any]] = {}
     if private_path.is_file():
         logger.debug("Loading private environment from %s", private_path)
-        private = load_env_json(private_path)
+        try:
+            private = load_env_json(private_path)
+        except (json.JSONDecodeError, ValueError) as exc:
+            logger.warning("Failed to load %s: %s", private_path, exc)
+        except OSError as exc:
+            logger.warning("Cannot read %s: %s", private_path, exc)
     else:
         logger.debug("No private environment file found at %s", private_path)
 

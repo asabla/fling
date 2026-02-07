@@ -61,7 +61,7 @@ src/fling/
 
 ## Implementation Status
 
-### Completed (25 of 25 original tasks + Web Overhaul Phases A–E + Task 6.3)
+### Completed (25 of 25 original tasks + Web Overhaul Phases A–E + Tasks 6.3, 7.2, 7.3)
 
 | Phase | Task | Description | Commit |
 |-------|------|-------------|--------|
@@ -93,12 +93,12 @@ src/fling/
 | E | — | Advanced features (env editing, history, comparison) | `91a639b` |
 | 6 | 6.3 | File formatting (`fling fmt`) and validation (`fling validate`) | `57bf13d` |
 | 7 | 7.1 | Documentation (README, CLI ref, format guide, env guide, scripting guide, Postman guide) | |
+| 7 | 7.2 | CI/CD (GitHub Actions, pre-commit, coverage config) | |
+| 7 | 7.3 | Error handling, edge cases, final polish | |
 
 ### Remaining
 
-| Phase | Task | Description |
-|-------|------|-------------|
-| 7 | 7.2 | CI/CD (GitHub Actions) |
+All planned tasks are complete.
 
 ## Conventions
 

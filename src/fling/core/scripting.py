@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import signal
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -336,6 +337,40 @@ def _transpile_response_body_access(stmt: str) -> str:
 # ---------------------------------------------------------------------------
 
 
+class _ScriptTimeoutError(Exception):
+    """Raised when a script exceeds the execution timeout."""
+
+
+def _exec_with_timeout(code: str, namespace: dict[str, Any], *, timeout: int = 30) -> None:
+    """Execute Python code with a timeout using SIGALRM.
+
+    Falls back to plain exec on platforms without SIGALRM (e.g., Windows).
+
+    Args:
+        code: Python code to execute.
+        namespace: Execution namespace.
+        timeout: Timeout in seconds.
+
+    Raises:
+        _ScriptTimeoutError: If execution exceeds the timeout.
+    """
+
+    def _alarm_handler(signum: int, frame: Any) -> None:
+        raise _ScriptTimeoutError
+
+    if hasattr(signal, "SIGALRM"):
+        old_handler = signal.signal(signal.SIGALRM, _alarm_handler)
+        signal.alarm(timeout)
+        try:
+            exec(code, namespace)
+        finally:
+            signal.alarm(0)
+            signal.signal(signal.SIGALRM, old_handler)
+    else:
+        # No SIGALRM on this platform — execute without timeout
+        exec(code, namespace)
+
+
 def execute_handler(
     handler: ResponseHandler,
     result: ExecutionResult,
@@ -384,8 +419,16 @@ def execute_handler(
             "json": json,
         }
 
-        exec(transpiled, namespace)
+        _exec_with_timeout(transpiled, namespace, timeout=30)
 
+    except _ScriptTimeoutError:
+        logger.warning("Script execution timed out after 30 seconds")
+        return ScriptResult(
+            tests=client.tests,
+            global_vars=client.global_store.variables,
+            warnings=warnings,
+            error="Script execution timed out after 30 seconds",
+        )
     except Exception as exc:
         logger.warning("Script execution error: %s", exc)
         return ScriptResult(

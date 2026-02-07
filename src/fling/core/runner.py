@@ -214,16 +214,41 @@ class HttpRunner:
 
         # Execute named requests in dependency order
         executed_names: set[str] = set()
+        failed_names: set[str] = set()
         for name in order:
             request = named[name]
             if request.metadata.disabled:
                 logger.info("Skipping disabled request: %s", name)
                 continue
 
+            # Skip if any dependency failed
+            request_deps = graph.get(name, set())
+            failed_deps = request_deps & failed_names
+            if failed_deps:
+                logger.warning(
+                    "Skipping '%s': dependency failed (%s)",
+                    name,
+                    ", ".join(sorted(failed_deps)),
+                )
+                from fling.core.models import ExecutionResult
+
+                skip_result = ExecutionResult(
+                    request=request,
+                    resolved_url=request.url,
+                    resolved_headers={},
+                    error=f"Skipped: dependency failed ({', '.join(sorted(failed_deps))})",
+                )
+                failed_names.add(name)
+                self._results[name] = skip_result
+                yield request, skip_result
+                continue
+
             result = await self._execute_request(request, resolver)
             resolver.add_chain_result(name, result)
             self._results[name] = result
             executed_names.add(name)
+            if result.error:
+                failed_names.add(name)
             yield request, result
 
         # Execute unnamed requests in file order
@@ -332,6 +357,16 @@ class HttpRunner:
         if request.body:
             if request.body.file_ref:
                 resolved_body = self._load_file_body(request.body.file_ref, request.location.file_path)
+                if resolved_body is None:
+                    # File body reference could not be loaded — return an error result
+                    from fling.core.models import ExecutionResult
+
+                    return ExecutionResult(
+                        request=request,
+                        resolved_url=resolver.resolve_string(request.url),
+                        resolved_headers={h.name: resolver.resolve_string(h.value) for h in request.headers},
+                        error=f"Body file not found: {request.body.file_ref}",
+                    )
             elif request.body.content:
                 resolved_body = resolver.resolve_string(request.body.content)
 

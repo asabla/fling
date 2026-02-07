@@ -82,3 +82,21 @@ plugins = ["pydantic.mypy"]
 [[tool.mypy.overrides]]
 module = ["jsonpath_ng.*"]
 ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["fling"]
+omit = [
+    "*/tui/*",
+    "*/web/*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "if __name__",
+    "@overload",
+]

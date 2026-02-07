@@ -7,7 +7,6 @@ system/dynamic variables, and request chaining references.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
 import os
@@ -79,8 +78,14 @@ class VariableResolver:
         # Layer 3: Environment variables
         self._env_vars: dict[str, Any] = {}
         if env_file and env_name:
-            with contextlib.suppress(KeyError):
+            try:
                 self._env_vars = resolve_environment(env_file, env_name)
+            except KeyError:
+                logger.warning(
+                    "Environment '%s' not found. Available: %s",
+                    env_name,
+                    [n for n in (env_file.environments or {}) if not n.startswith("_")],
+                )
 
         # Layer 4: .env file variables
         self._dotenv_vars: dict[str, str] = {}
@@ -105,6 +110,7 @@ class VariableResolver:
             var_expr = match.group(1).strip()
             value = self._resolve_variable(var_expr)
             if value is None:
+                logger.warning("Unresolved variable: {{%s}}", var_expr)
                 return match.group(0)  # Leave unresolved
             return str(value)
 

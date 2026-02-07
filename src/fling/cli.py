@@ -7,6 +7,7 @@ listing environments, and converting Postman collections.
 from __future__ import annotations
 
 import asyncio
+import logging
 import sys
 from fnmatch import fnmatch
 from pathlib import Path
@@ -29,6 +30,27 @@ if TYPE_CHECKING:
 
 console = Console()
 error_console = Console(stderr=True)
+
+
+def _configure_logging(*, verbose: bool = False, quiet: bool = False) -> None:
+    """Configure the root logger for fling.
+
+    Args:
+        verbose: If True, set log level to DEBUG.
+        quiet: If True, set log level to ERROR (suppresses warnings).
+    """
+    if verbose:
+        level = logging.DEBUG
+    elif quiet:
+        level = logging.ERROR
+    else:
+        level = logging.WARNING
+
+    logging.basicConfig(
+        level=level,
+        format="%(levelname)s: %(message)s",
+        force=True,
+    )
 
 
 def _status_style(code: int) -> str:
@@ -143,7 +165,8 @@ def main(ctx: click.Context) -> None:
 @click.option("--all", "run_all", is_flag=True, help="Run all requests in order.")
 @click.option("--env", "-e", help="Environment name to use.")
 @click.option("--env-file", type=click.Path(exists=True), help="Path to env file directory.")
-@click.option("--verbose", "-v", is_flag=True, help="Show extra detail.")
+@click.option("--verbose", "-v", is_flag=True, help="Show extra detail (enables debug logging).")
+@click.option("--quiet", "-q", is_flag=True, help="Suppress non-error output.")
 @click.option(
     "--output",
     "-o",
@@ -169,6 +192,7 @@ def run(
     env: str | None,
     env_file: str | None,
     verbose: bool,
+    quiet: bool,
     output: str,
     timeout: int | None,
     insecure: bool,
@@ -178,6 +202,8 @@ def run(
     repeat_mode: str,
 ) -> None:
     """Run HTTP requests from a .http file."""
+    _configure_logging(verbose=verbose, quiet=quiet)
+
     # Parse the file
     parse_result = parse_http_file(file)
     if parse_result.has_errors:
@@ -223,6 +249,7 @@ def run(
         runner_kwargs["default_timeout"] = timeout / 1000.0
 
     is_report_output = output in ("json-report", "junit", "markdown")
+    should_print = not is_report_output and not quiet
 
     # Execute
     async def _run_once(runner: HttpRunner) -> tuple[list[tuple[HttpRequestDefinition, ExecutionResult]], int]:
@@ -234,7 +261,7 @@ def run(
             try:
                 async for req, result in runner.run_single(http_file, name):
                     collected.append((req, result))
-                    if not is_report_output:
+                    if should_print:
                         _print_result(req, result, output=output, verbose=verbose)
                     if _result_is_failure(result):
                         error_count += 1
@@ -246,7 +273,7 @@ def run(
         elif run_all or len(http_file.requests) == 1:
             async for req, result in runner.run_all(http_file):
                 collected.append((req, result))
-                if not is_report_output:
+                if should_print:
                     _print_result(req, result, output=output, verbose=verbose)
                 if _result_is_failure(result):
                     error_count += 1
@@ -257,7 +284,7 @@ def run(
             first = http_file.requests[0]
             async for req, result in runner.run_all(_make_single_file(http_file, first)):
                 collected.append((req, result))
-                if not is_report_output:
+                if should_print:
                     _print_result(req, result, output=output, verbose=verbose)
                 if _result_is_failure(result):
                     error_count += 1
@@ -299,7 +326,15 @@ def run(
 
         return total_errors
 
-    errors = asyncio.run(_run())
+    try:
+        errors = asyncio.run(_run())
+    except KeyboardInterrupt:
+        error_console.print("\n[dim]Interrupted.[/]")
+        sys.exit(130)
+    except Exception as exc:
+        error_console.print(f"[bold red]Unexpected error[/]: {exc}")
+        sys.exit(1)
+
     if errors:
         sys.exit(1)
 
