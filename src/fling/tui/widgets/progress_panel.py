@@ -111,7 +111,7 @@ class ProgressPanel(Vertical):
     """
 
     def __init__(self, **kwargs: object) -> None:
-        super().__init__(**kwargs)
+        super().__init__(**kwargs)  # type: ignore[arg-type]
         self._total = 0
         self._completed = 0
         self._passed = 0
@@ -267,17 +267,17 @@ class ProgressPanel(Vertical):
 
     def _update_row_status(
         self,
-        table: DataTable,
+        table: DataTable[str],
         row_key: RowKey,
         status: RequestStatus,
     ) -> None:
         """Update the status cell for a row."""
         status_col_key = next(iter(table.columns.keys()))
-        table.update_cell(row_key, status_col_key, self._status_text(status))
+        table.update_cell(row_key, status_col_key, self._status_text(status))  # type: ignore[arg-type]
 
     def _update_row_result(
         self,
-        table: DataTable,
+        table: DataTable[str],
         row_key: RowKey,
         result: ExecutionResult,
     ) -> None:

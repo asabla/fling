@@ -36,7 +36,7 @@ class FlingApp(App[None]):
 
     CSS_PATH = "styles/app.tcss"
 
-    BINDINGS: ClassVar[list[Binding]] = [
+    BINDINGS: ClassVar[list[Binding | tuple[str, str] | tuple[str, str, str]]] = [
         Binding("q", "quit", "Quit", show=True),
         Binding("ctrl+r", "run_request", "Run", show=True),
         Binding("ctrl+shift+r", "run_all", "Run All", show=True),

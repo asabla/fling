@@ -365,7 +365,7 @@ def _extract_description(desc: str | dict[str, Any] | None) -> str:
     if isinstance(desc, str):
         return desc
     if isinstance(desc, dict):
-        return desc.get("content", "")
+        return str(desc.get("content", ""))
     return ""
 
 
@@ -535,13 +535,13 @@ def _convert_body(body: PostmanBody) -> tuple[str, str | None]:
 
     if body.mode == "graphql":
         # Convert GraphQL to a JSON POST body
-        gql_body = {"query": body.graphql.get("query", "")}
+        gql_body: dict[str, Any] = {"query": body.graphql.get("query", "")}
         variables_str = body.graphql.get("variables", "")
         if variables_str:
             try:
                 gql_body["variables"] = json.loads(variables_str)
             except (json.JSONDecodeError, ValueError):
-                gql_body["variables"] = variables_str  # type: ignore[assignment]
+                gql_body["variables"] = variables_str
         return (json.dumps(gql_body, indent=2), "application/json")
 
     return ("", None)

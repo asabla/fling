@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from fling.core.models import (
+        Header,
         HttpFile,
         HttpRequestDefinition,
     )
@@ -165,7 +166,7 @@ def _emit_request(parts: list[str], req: HttpRequestDefinition) -> None:
         parts.append(f">> {req.response_save_path}")
 
 
-def _align_headers(headers: list[object]) -> list[str]:
+def _align_headers(headers: list[Header]) -> list[str]:
     """Align header lines so ``:`` characters are vertically aligned.
 
     Args:
@@ -175,12 +176,10 @@ def _align_headers(headers: list[object]) -> list[str]:
         List of formatted header strings.
     """
     # Find the longest header name
-    max_name_len = max(len(h.name) for h in headers)  # type: ignore[union-attr]
+    max_name_len = max(len(h.name) for h in headers)
 
     lines: list[str] = []
     for h in headers:
-        name: str = h.name  # type: ignore[union-attr]
-        value: str = h.value  # type: ignore[union-attr]
-        padded_name = name.ljust(max_name_len)
-        lines.append(f"{padded_name}: {value}")
+        padded_name = h.name.ljust(max_name_len)
+        lines.append(f"{padded_name}: {h.value}")
     return lines

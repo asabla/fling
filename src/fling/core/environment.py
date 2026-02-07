@@ -113,7 +113,7 @@ def load_dotenv_file(path: Path) -> dict[str, str]:
 
 
 def load_environment(
-    directory: Path,
+    directory: str | Path,
     *,
     public_filename: str = PUBLIC_ENV_FILENAME,
     private_filename: str = PRIVATE_ENV_FILENAME,
