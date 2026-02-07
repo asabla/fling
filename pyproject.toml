@@ -12,11 +12,7 @@ dependencies = [
     "pydantic>=2.7",
     "jsonpath-ng>=1.6",
     "python-dotenv>=1.0",
-]
-
-[project.optional-dependencies]
-tui = ["textual>=0.70"]
-web = [
+    "textual>=0.70",
     "fastapi>=0.111",
     "uvicorn[standard]>=0.30",
     "jinja2>=3.1",
@@ -24,7 +20,6 @@ web = [
     "sse-starlette>=2.0",
     "watchfiles>=1.0",
 ]
-all = ["fling[tui,web]"]
 
 [project.scripts]
 fling = "fling.cli:main"

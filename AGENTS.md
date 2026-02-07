@@ -52,13 +52,12 @@ src/fling/
 
 - **Python**: 3.12+ minimum
 - **Async**: Fully async core using `httpx.AsyncClient`
-- **Build**: `uv_build` backend, installable via `pip install fling`
+- **Build**: `uv_build` backend, installable via `pip install git+https://github.com/asabla/fling.git`
 - **Package manager**: `uv` for development
 - **Testing**: `pytest` + `pytest-asyncio` + `pytest-httpx`, `asyncio_mode = "auto"` (no `@pytest.mark.asyncio` needed)
 - **Linting**: `ruff` for linting and formatting
 - **Type checking**: `mypy` with strict mode
-- **Dependencies**: Click, httpx, Rich, Pydantic v2, jsonpath-ng, python-dotenv
-- **Optional extras**: `fling[tui]` (Textual), `fling[web]` (FastAPI+HTMX), `fling[all]`
+- **Dependencies**: Click, httpx, Rich, Pydantic v2, jsonpath-ng, python-dotenv, Textual, FastAPI, uvicorn, Jinja2, sse-starlette, watchfiles
 
 ## Implementation Status
 
